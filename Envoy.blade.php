@@ -16,14 +16,14 @@
 | direction of a command already implies which server it means. Imports never
 | run on production at all — the task refuses rather than prompts.
 |
-| Where this project's data flows is declared once in ENVOY_SYNC:
+| Where this project's data flows is declared once in ENVOY_SYNC_ALL:
 |
-|   ENVOY_SYNC="db-pull, storage-push --dir=storage/app, storage-pull --dir=storage/media"
+|   ENVOY_SYNC_ALL="db-pull, storage-push --dir=storage/app, storage-pull --dir=storage/media"
 |
-| The directories can live on their own key instead, which ENVOY_SYNC then
+| The directories can live on their own key instead, which ENVOY_SYNC_ALL then
 | pulls in wherever it says storage-sync:
 |
-|   ENVOY_SYNC="db-pull, storage-sync"
+|   ENVOY_SYNC_ALL="db-pull, storage-sync"
 |   ENVOY_STORAGE_SYNC="storage-push --dir=storage/app, storage-pull --dir=storage/media"
 |
 | Common commands
@@ -31,6 +31,7 @@
 |   envoy run deploy --prod        full deploy to production
 |   envoy run db-pull              production database down to local
 |   envoy run storage-push --dir=storage/app/public
+|   envoy run sync-all             the whole ENVOY_SYNC_ALL declaration
 |
 --}}
 
@@ -265,7 +266,7 @@
     | in .env instead of remembering it at the keyboard. An entry is the
     | command you would have typed, flags and all:
     |
-    |   ENVOY_SYNC="db-pull, storage-push --dir=public/uploads --delete"
+    |   ENVOY_SYNC_ALL="db-pull, storage-push --dir=public/uploads --delete"
     |
     | Entries are comma separated. Each is db-pull, db-push, a storage-pull
     | / storage-push naming the one directory it moves, or storage-sync for
@@ -315,14 +316,14 @@
 
     /*
     | The directories can live on a key of their own, ENVOY_STORAGE_SYNC, so a
-    | project that moves several of them does not turn ENVOY_SYNC into one long
-    | line. ENVOY_SYNC then just says storage-sync where they belong:
+    | project that moves several of them does not turn ENVOY_SYNC_ALL into one
+    | long line. ENVOY_SYNC_ALL then just says storage-sync where they belong:
     |
-    |   ENVOY_SYNC="db-pull, storage-sync"
+    |   ENVOY_SYNC_ALL="db-pull, storage-sync"
     |   ENVOY_STORAGE_SYNC="storage-push --dir=storage/app, storage-pull --dir=storage/media"
     |
-    | Naming the directories in ENVOY_SYNC still works and still wins — leave
-    | storage-sync out and ENVOY_STORAGE_SYNC is not read at all.
+    | Naming the directories in ENVOY_SYNC_ALL still works and still wins —
+    | leave storage-sync out and ENVOY_STORAGE_SYNC is not read at all.
     |
     | There is no built-in directory behind any of this: an undeclared
     | storage-sync moves nothing, and so does a storage-pull / storage-push
@@ -333,7 +334,7 @@
     $storage_spec = (string) $cfg('ENVOY_STORAGE_SYNC', '');
 
     $sync_parse = function (string $spec, string $source) use (&$sync_parse, &$sync_db, &$storage_spec, $sync_assign, $sync_path) {
-        $commands = $source === 'ENVOY_SYNC'
+        $commands = $source === 'ENVOY_SYNC_ALL'
             ? ['db-pull', 'db-push', 'storage-pull', 'storage-push', 'storage-sync']
             : ['storage-pull', 'storage-push'];
 
@@ -356,7 +357,7 @@
             }
 
             // storage-sync stands in for whatever ENVOY_STORAGE_SYNC declares,
-            // in the place ENVOY_SYNC puts it.
+            // in the place ENVOY_SYNC_ALL puts it.
             if ($command === 'storage-sync') {
                 if ($tokens) {
                     throw new RuntimeException(
@@ -411,12 +412,19 @@
         }
     };
 
-    $sync_parse((string) $cfg('ENVOY_SYNC', 'db-pull, storage-sync'), 'ENVOY_SYNC');
+    // The key used to be ENVOY_SYNC. A stale one would be ignored silently and
+    // the default direction used instead, which is how a db-push project ends
+    // up pulling, so say so rather than guess.
+    if ($cfg('ENVOY_SYNC') !== null && $cfg('ENVOY_SYNC_ALL') === null) {
+        throw new RuntimeException('Envoy: ENVOY_SYNC has been renamed to ENVOY_SYNC_ALL. Rename the key in .env.');
+    }
+
+    $sync_parse((string) $cfg('ENVOY_SYNC_ALL', 'db-pull, storage-sync'), 'ENVOY_SYNC_ALL');
 
     /*
     | --dir=public/uploads is the ad-hoc escape hatch: it transfers exactly
-    | that project-relative directory, whether or not ENVOY_SYNC mentions it,
-    | and ignores the declaration entirely.
+    | that project-relative directory, whether or not ENVOY_SYNC_ALL mentions
+    | it, and ignores the declaration entirely.
     */
 
     if (isset($dir)) {
@@ -692,8 +700,8 @@
 @endtask
 
 @task('db-nothing-declared', ['on' => 'local'])
-    echo "## ENVOY_SYNC declares no db-pull or db-push, so there is nothing to do."
-    echo '##   e.g. ENVOY_SYNC="db-pull, storage-sync"'
+    echo "## ENVOY_SYNC_ALL declares no db-pull or db-push, so there is nothing to do."
+    echo '##   e.g. ENVOY_SYNC_ALL="db-pull, storage-sync"'
 @endtask
 
 {{--
@@ -705,7 +713,7 @@
 @task('storage-pull', ['on' => 'local'])
     set -e
 @if (! $sync_pull_dirs)
-    echo "## Nothing is declared to pull — see ENVOY_SYNC / ENVOY_STORAGE_SYNC in .env, or pass --dir=<path>"
+    echo "## Nothing is declared to pull — see ENVOY_SYNC_ALL / ENVOY_STORAGE_SYNC in .env, or pass --dir=<path>"
 @endif
 @foreach ($sync_pull_dirs as $e)
     echo "## {{ $pull_env['name'] }}:{{ $e['path'] }} -> local"
@@ -719,7 +727,7 @@
 @task('storage-push', ['on' => 'local', 'confirm' => $confirm()])
     set -e
 @if (! $sync_push_dirs)
-    echo "## Nothing is declared to push — see ENVOY_SYNC / ENVOY_STORAGE_SYNC in .env, or pass --dir=<path>"
+    echo "## Nothing is declared to push — see ENVOY_SYNC_ALL / ENVOY_STORAGE_SYNC in .env, or pass --dir=<path>"
 @endif
 @foreach ($sync_push_dirs as $e)
     echo "## local:{{ $e['path'] }} -> {{ $push_env['name'] }}"
@@ -749,8 +757,8 @@
 
 @task('storage-nothing-declared', ['on' => 'local'])
     echo "## No directories are declared, so there is nothing to do."
-    echo '##   e.g. ENVOY_SYNC="db-pull, storage-pull --dir=storage/app/public"'
-    echo '##   or   ENVOY_SYNC="db-pull, storage-sync" with the directories in ENVOY_STORAGE_SYNC'
+    echo '##   e.g. ENVOY_SYNC_ALL="db-pull, storage-pull --dir=storage/app/public"'
+    echo '##   or   ENVOY_SYNC_ALL="db-pull, storage-sync" with the directories in ENVOY_STORAGE_SYNC'
 @endtask
 
 {{--
@@ -893,4 +901,20 @@
 @if ($sync_push_dirs)
     storage-push
 @endif
+@endstory
+
+{{--
+|--------------------------------------------------------------------------
+| Sync
+|--------------------------------------------------------------------------
+|
+| The whole ENVOY_SYNC_ALL declaration in one run: the database first, then
+| the files, each in the direction that key declares for it. Nothing here
+| decides anything on its own — an undeclared half simply says so and moves
+| nothing, so on a project that only mirrors files this is storage-sync.
+--}}
+
+@story('sync-all')
+    db-sync
+    storage-sync
 @endstory
