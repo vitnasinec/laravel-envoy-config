@@ -53,7 +53,7 @@ All four take `--prod` to target production, and confirm before touching it.
 |---|---|
 | `db-dump` | Dumps the **production** database into prod's dump dir — `dump--latest.sql` plus a timestamped copy. Downloads nothing, writes nothing. |
 | `db-import` | Imports your local `storage/envoy/dump--latest.sql` into your **local** database: checkout prod's branch → `migrate:fresh` → import → back to your branch → `migrate`. |
-| `db-import --dev` | Uploads the dump you already have to dev and imports it there. Errors if there is no dump — it never silently fetches fresher production data. |
+| `db-import --dev` | Imports the `dump--latest.sql` already on dev — the one the last `db-push` uploaded — into dev's database. Uploads nothing; errors if dev has no dump. |
 | `db-pull` | prod → local, end to end: `db-dump` → download → `db-import`. |
 | `db-push` | local → **dev**, end to end: dump local → upload → import on dev. |
 | `db-sync` | Runs `db-pull` or `db-push` per the `db-pull` / `db-push` entry in `ENVOY_SYNC`. No entry, nothing to do. |

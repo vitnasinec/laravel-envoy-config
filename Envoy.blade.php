@@ -652,6 +652,11 @@
 @else
     set -e
     cd {{ $push_env['path'] }}
+    if [ ! -f {{ $push_env['dumps'] }}/{{ $dump_latest }} ]; then
+        echo "## No dump at {{ $push_env['name'] }}:{{ $push_env['dumps'] }}/{{ $dump_latest }}"
+        echo "##   run 'envoy run db-push' to send one, or 'envoy run db-upload' on its own"
+        exit 1
+    fi
     echo "## Rebuilding {{ $push_env['name'] }} schema and importing {{ $dump_latest }}"
     {{ $push_env['php'] }} artisan migrate:fresh --drop-views --force --quiet
     MYSQL_PWD='{{ $push_env['db']['password'] }}' mysql \
@@ -848,11 +853,14 @@
 @endif
 @endstory
 
-{{-- Local unless you name a remote; production is refused either way. --}}
+{{--
+| Local unless you name a remote; production is refused either way. Nothing
+| is uploaded: it imports the dump--latest.sql already sitting on the target,
+| the one the last db-push put there.
+--}}
 
 @story('db-import')
 @if ($import_remote)
-    db-upload
     db-import-remote
 @else
     db-import-local
