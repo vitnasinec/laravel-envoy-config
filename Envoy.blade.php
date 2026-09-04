@@ -27,7 +27,8 @@
 |   ENVOY_STORAGE_SYNC="storage-push --dir=storage/app, storage-pull --dir=storage/media"
 |
 | Common commands
-|   envoy run code-push            fast deploy to dev
+|   envoy run code-push            fast deploy to dev  (alias: push)
+|   envoy run code-sync            deploy both remotes (alias: sync)
 |   envoy run deploy --prod        full deploy to production
 |   envoy run db-pull              production database down to local
 |   envoy run storage-push --dir=storage/app/public
@@ -834,6 +835,20 @@
     echo "## Done — you are back on {{ $environments['dev']['branch'] }}"
 @endif
 @endtask
+
+{{--
+| Aliases for the two commands typed the most. A story is only a list of
+| names, so these carry every flag straight through: push --prod --force is
+| code-push --prod --force.
+--}}
+
+@story('push')
+    code-push
+@endstory
+
+@story('sync')
+    code-sync
+@endstory
 
 {{--
 |--------------------------------------------------------------------------

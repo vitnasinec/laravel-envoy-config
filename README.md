@@ -40,12 +40,14 @@ safe thing. Projects with a single remote use it for both directions.
 
 | Command | Does |
 |---|---|
-| `code-push` | **Fast deploy → dev.** down → `git push` → remote checks out *your* branch and pulls → build → `optimize` → up. No composer install, no migrations — that is the point of it. Your local branch never moves; the remote is moved to match it. |
+| `code-push` (`push`) | **Fast deploy → dev.** down → `git push` → remote checks out *your* branch and pulls → build → `optimize` → up. No composer install, no migrations — that is the point of it. Your local branch never moves; the remote is moved to match it. |
 | `code-push --force` | Same, but `git add -A` + `commit --amend` + `push --force-with-lease`, and the remote hard-resets to origin. The iterate-on-a-server-only-bug loop. |
-| `code-sync` | **Both remotes, one run.** Confirms once, then merges `main` into `dev` and `dev` into `main`, deploys `main` to production, deploys `dev` to the dev server, and leaves you on `dev`. Both branches end up level; a merge conflict stops the run before anything is deployed. |
+| `code-sync` (`sync`) | **Both remotes, one run.** Confirms once, then merges `main` into `dev` and `dev` into `main`, deploys `main` to production, deploys `dev` to the dev server, and leaves you on `dev`. Both branches end up level; a merge conflict stops the run before anything is deployed. |
 | `deploy` | **Full deploy.** Everything `code-push` does, plus `composer install` and `migrate` between the pull and the build. Prod gets `--no-dev --optimize-autoloader`. |
 
 All four take `--prod` to target production, and confirm before touching it.
+`push` and `sync` are aliases — every flag passes straight through, so
+`envoy run push --prod --force` is `code-push --prod --force`.
 
 ### Database
 
