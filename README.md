@@ -174,7 +174,6 @@ prod, and a project with only `PROD_SSH_HOST` set uses production for both.
 | `ENVOY_BUILD_ASSETS` | whether `deploy` and `code-push` build on the server. Leave it empty to auto-detect (true when `package.json` has a `build` script); set `false` for projects with no front-end build, or that commit built assets. `--build` / `--nobuild` override it for one run. |
 | `ENVOY_STORAGE_SYNC` | which directories move, and which way — see [above](#which-way-does-the-data-go) |
 | `ENVOY_DB_IGNORE_TABLES` | tables whose data is never carried between environments — migrations, cache, sessions, queues, telescope, pulse |
-| `ENVOY_DB_DUMP_SCHEMA` | `false` (default) dumps data only and lets `migrate:fresh` build the schema; `true` dumps `CREATE TABLE` too |
 
 ## Flags
 
@@ -196,9 +195,9 @@ runs it spawns from re-asking for the confirmation you already gave.
   never checked out from under you — the one exception is `code-sync`, which
   merges and checks out both branches by definition, and `db-import`, which
   borrows prod's branch to build the right schema and puts you back afterwards.
-- The default dump is **data only**; `db-import` runs `migrate:fresh` on prod's
+- Dumps are **data only**, always. `db-import` runs `migrate:fresh` on prod's
   branch first, imports, then switches back to your branch and applies newer
-  migrations. Set `ENVOY_DB_DUMP_SCHEMA=true` for full dumps.
+  migrations — so the schema comes from the migrations, never from a dump.
 - Passwords go through `MYSQL_PWD`, not `--password=…`, so they don't show up
   in `ps` on a shared host.
 - `set -e` in every task, so a failed `git pull` cannot leave `migrate` and

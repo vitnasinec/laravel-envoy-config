@@ -198,15 +198,10 @@
     $dump_latest = 'dump--latest.sql';
     $dump_stamp  = 'dump--' . date('Ymd-His') . '.sql';
 
-    // Data only + `migrate:fresh` before import keeps the schema owned by
-    // migrations. Set ENVOY_DB_DUMP_SCHEMA=true for a full structural dump.
-    $dump_schema = (bool) $cfg('ENVOY_DB_DUMP_SCHEMA', false);
-
-    $dump_flags = trim(implode(' ', [
-        '--single-transaction --quick --skip-lock-tables --no-tablespaces',
-        '--default-character-set=utf8mb4 --skip-triggers',
-        $dump_schema ? '' : '--no-create-info',
-    ]));
+    // Data only — --no-create-info, plus `migrate:fresh` before every import,
+    // keeps the schema owned by the migrations and never by a dump.
+    $dump_flags = '--single-transaction --quick --skip-lock-tables --no-tablespaces '
+        . '--default-character-set=utf8mb4 --skip-triggers --no-create-info';
 
     $ignore_tables = $csv($cfg(
         'ENVOY_DB_IGNORE_TABLES',
