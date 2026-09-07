@@ -188,6 +188,13 @@ Laravel's own `DB_*` keys, so there is nothing to add for it.
   in `ps` on a shared host.
 - `set -e` in every task, so a failed `git pull` cannot leave `migrate` and
   `artisan up` running behind it.
+- The two environments are typed objects, not nested arrays — `$remote->db->password`,
+  not `$remote['db']['password']`. Every one of those values is spliced into a
+  shell command, and a mistyped array key would have arrived there as an empty
+  string; a mistyped property is a fatal error before anything runs. They are
+  plain data holders with no methods, because Envoy pre-declares every variable
+  it finds in the file and a method body referring to the object itself would be
+  compiled into a re-assignment of it. Needs PHP 8.1 for `readonly`.
 - Per-project quirks (a `permission_name` virtual-column dance, a `DevSeeder`,
   extra ignore tables) stay in that project's file as an extra task appended
   below the template — the shared part stays shared.

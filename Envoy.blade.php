@@ -56,6 +56,50 @@
 
     /*
     |--------------------------------------------------------------------------
+    | What an environment is
+    |--------------------------------------------------------------------------
+    | Objects, not nested arrays. Every value below ends up spliced into a shell
+    | command, and a mistyped array key arrives there as an empty string — an
+    | rsync with no source, a mysql with no database. The same typo against a
+    | typed property is a fatal error, before any of it runs.
+    |
+    | Data only, no methods: Envoy pre-declares every variable it finds in this
+    | file, so a method body referring to the object itself would be compiled
+    | into a re-assignment of it and refuse to parse. Anything that needs
+    | working out is worked out before the object is built.
+    */
+
+    final class EnvoyDatabase
+    {
+        public function __construct(
+            public readonly string $host,
+            public readonly int $port,
+            public readonly ?string $database,
+            public readonly ?string $username,
+            public readonly ?string $password,
+            public readonly string $sqlite,
+        ) {
+        }
+    }
+
+    final class EnvoyEnvironment
+    {
+        public function __construct(
+            public readonly string $path,
+            public readonly string $dumps,
+            public readonly string $branch,
+            public readonly EnvoyDatabase $db,
+            public readonly string $ssh = '',
+            public readonly int $port = 22,
+            public readonly string $php = 'php',
+            public readonly string $composer = 'composer',
+            public readonly string $npm = 'npm',
+        ) {
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | The remote
     |--------------------------------------------------------------------------
     | One server, on the PROD_ keys. PROD_SSH_HOST is what makes the rest of
@@ -68,49 +112,50 @@
         );
     }
 
-    $remote = [
-        'user'     => $cfg('PROD_SSH_USER'),
-        'host'     => $cfg('PROD_SSH_HOST'),
-        'port'     => (int) $cfg('PROD_SSH_PORT', 22),
-        'path'     => rtrim($cfg('PROD_PATH', '~/' . basename(__DIR__)), '/'),
-        'dumps'    => rtrim($cfg('PROD_DUMP_PATH', $cfg('PROD_PATH', '~') . '/storage/envoy'), '/'),
-        'php'      => $cfg('PROD_PHP', 'php'),
-        'composer' => $cfg('PROD_COMPOSER', 'composer'),
-        'npm'      => $cfg('PROD_NPM', 'npm'),
-        'branch'   => $cfg('PROD_BRANCH', 'main'),
-        'db' => [
-            'host'     => $cfg('PROD_DB_HOST', '127.0.0.1'),
-            'port'     => (int) $cfg('PROD_DB_PORT', 3306),
-            'database' => $cfg('PROD_DB_DATABASE'),
-            'username' => $cfg('PROD_DB_USERNAME'),
-            'password' => $cfg('PROD_DB_PASSWORD'),
-            'sqlite'   => $cfg('PROD_DB_SQLITE_PATH'),
-        ],
-    ];
+    $remote_host = $cfg('PROD_SSH_HOST');
+    $remote_user = $cfg('PROD_SSH_USER');
+    $remote_path = rtrim($cfg('PROD_PATH', '~/' . basename(__DIR__)), '/');
 
-    $remote['ssh'] = $remote['user']
-        ? $remote['user'] . '@' . $remote['host']
-        : $remote['host'];
+    $remote = new EnvoyEnvironment(
+        path: $remote_path,
+        dumps: rtrim($cfg('PROD_DUMP_PATH', $remote_path . '/storage/envoy'), '/'),
+        branch: $cfg('PROD_BRANCH', 'main'),
+        db: new EnvoyDatabase(
+            host: $cfg('PROD_DB_HOST', '127.0.0.1'),
+            port: (int) $cfg('PROD_DB_PORT', 3306),
+            database: $cfg('PROD_DB_DATABASE'),
+            username: $cfg('PROD_DB_USERNAME'),
+            password: $cfg('PROD_DB_PASSWORD'),
+            sqlite: $cfg('PROD_DB_SQLITE_PATH') ?: $remote_path . '/database/database.sqlite',
+        ),
+        // user@host, or the bare host when ~/.ssh/config already knows the user.
+        ssh: $remote_user ? $remote_user . '@' . $remote_host : $remote_host,
+        port: (int) $cfg('PROD_SSH_PORT', 22),
+        php: $cfg('PROD_PHP', 'php'),
+        composer: $cfg('PROD_COMPOSER', 'composer'),
+        npm: $cfg('PROD_NPM', 'npm'),
+    );
 
     /*
     |--------------------------------------------------------------------------
     | Local environment — reuses Laravel's own DB_* keys
     |--------------------------------------------------------------------------
+    | Nothing is ever ssh'd to here, so the ssh fields keep their defaults.
     */
 
-    $local = [
-        'path'   => __DIR__,
-        'dumps'  => rtrim($cfg('ENVOY_DUMP_PATH', __DIR__ . '/storage/envoy'), '/'),
-        'branch' => trim((string) shell_exec('git branch --show-current 2>/dev/null')),
-        'db' => [
-            'host'     => $cfg('DB_HOST', '127.0.0.1'),
-            'port'     => (int) $cfg('DB_PORT', 3306),
-            'database' => $cfg('DB_DATABASE'),
-            'username' => $cfg('DB_USERNAME'),
-            'password' => $cfg('DB_PASSWORD'),
-            'sqlite'   => $cfg('DB_SQLITE_PATH', __DIR__ . '/database/database.sqlite'),
-        ],
-    ];
+    $local = new EnvoyEnvironment(
+        path: __DIR__,
+        dumps: rtrim($cfg('ENVOY_DUMP_PATH', __DIR__ . '/storage/envoy'), '/'),
+        branch: trim((string) shell_exec('git branch --show-current 2>/dev/null')),
+        db: new EnvoyDatabase(
+            host: $cfg('DB_HOST', '127.0.0.1'),
+            port: (int) $cfg('DB_PORT', 3306),
+            database: $cfg('DB_DATABASE'),
+            username: $cfg('DB_USERNAME'),
+            password: $cfg('DB_PASSWORD'),
+            sqlite: $cfg('DB_SQLITE_PATH') ?: __DIR__ . '/database/database.sqlite',
+        ),
+    );
 
     /*
     | Everything that writes to the remote confirms first. --noconfirm answers
@@ -121,7 +166,7 @@
 
     $servers = [
         'local'  => '127.0.0.1',
-        'remote' => $remote['ssh'] . ($remote['port'] !== 22 ? " -p {$remote['port']}" : ''),
+        'remote' => $remote->ssh . ($remote->port !== 22 ? " -p {$remote->port}" : ''),
     ];
 
     /*
@@ -130,12 +175,12 @@
     |--------------------------------------------------------------------------
     */
 
-    $ssh_flag = $remote['port'] !== 22 ? "-p {$remote['port']}" : '';
-    $scp_flag = $remote['port'] !== 22 ? "-P {$remote['port']}" : '';
+    $ssh_flag = $remote->port !== 22 ? "-p {$remote->port}" : '';
+    $scp_flag = $remote->port !== 22 ? "-P {$remote->port}" : '';
 
     $rsync_opts = trim(
         '-az --human-readable '
-        . ($remote['port'] !== 22 ? "-e 'ssh -p {$remote['port']}' " : '')
+        . ($remote->port !== 22 ? "-e 'ssh -p {$remote->port}' " : '')
         . (isset($dry) ? '--dry-run --itemize-changes' : '')
     );
 
@@ -334,21 +379,21 @@
 
 @task('down', ['on' => 'remote'])
     set -e
-    cd {{ $remote['path'] }}
-    {{ $remote['php'] }} artisan up --quiet || true
-    {{ $remote['php'] }} artisan down --render=errors::503
+    cd {{ $remote->path }}
+    {{ $remote->php }} artisan up --quiet || true
+    {{ $remote->php }} artisan down --render=errors::503
 @endtask
 
 @task('up', ['on' => 'remote'])
     set -e
-    cd {{ $remote['path'] }}
-    {{ $remote['php'] }} artisan up
+    cd {{ $remote->path }}
+    {{ $remote->php }} artisan up
 @endtask
 
 @task('status', ['on' => 'remote'])
     set -e
-    cd {{ $remote['path'] }}
-    echo "## {{ $remote['ssh'] }}:{{ $remote['path'] }}"
+    cd {{ $remote->path }}
+    echo "## {{ $remote->ssh }}:{{ $remote->path }}"
     git rev-parse --abbrev-ref HEAD
     git log -1 --oneline
     git status --porcelain
@@ -362,13 +407,13 @@
 
 @task('git-push', ['on' => 'local'])
     set -e
-    echo "## Pushing {{ $local['branch'] }} to origin"
+    echo "## Pushing {{ $local->branch }} to origin"
     git push --quiet
 @endtask
 
 @task('git-repush', ['on' => 'local'])
     set -e
-    echo "## Amending last commit on {{ $local['branch'] }} and force pushing"
+    echo "## Amending last commit on {{ $local->branch }} and force pushing"
     git add -A
     git commit --amend --no-edit --quiet
     git push --force-with-lease --quiet
@@ -378,20 +423,20 @@
 
 @task('git-pull', ['on' => 'remote'])
     set -e
-    cd {{ $remote['path'] }}
-    echo "## Checking out {{ $local['branch'] }} on the remote and pulling"
+    cd {{ $remote->path }}
+    echo "## Checking out {{ $local->branch }} on the remote and pulling"
     git fetch --quiet
-    git checkout {{ $local['branch'] }} --quiet
+    git checkout {{ $local->branch }} --quiet
     git pull --quiet
 @endtask
 
 @task('git-reset', ['on' => 'remote', 'confirm' => $confirm()])
     set -e
-    cd {{ $remote['path'] }}
+    cd {{ $remote->path }}
     echo "## Discarding local commits on the remote and resetting to origin"
     git fetch --quiet
-    git checkout {{ $local['branch'] }} --quiet
-    git reset --hard "origin/{{ $local['branch'] }}" --quiet
+    git checkout {{ $local->branch }} --quiet
+    git reset --hard "origin/{{ $local->branch }}" --quiet
     chmod 644 public/index.php
 @endtask
 
@@ -403,36 +448,36 @@
 
 @task('composer-install', ['on' => 'remote'])
     set -e
-    cd {{ $remote['path'] }}
+    cd {{ $remote->path }}
     echo "## Installing composer dependencies"
-    {{ $remote['composer'] }} install --no-progress --no-interaction --no-dev --prefer-dist --optimize-autoloader
+    {{ $remote->composer }} install --no-progress --no-interaction --no-dev --prefer-dist --optimize-autoloader
 @endtask
 
 @task('npm-build', ['on' => 'remote'])
     set -e
-    cd {{ $remote['path'] }}
+    cd {{ $remote->path }}
     echo "## Building assets"
-    {{ $remote['npm'] }} ci --silent || {{ $remote['npm'] }} install --silent
-    {{ $remote['npm'] }} run --silent build
+    {{ $remote->npm }} ci --silent || {{ $remote->npm }} install --silent
+    {{ $remote->npm }} run --silent build
 @endtask
 
 @task('migrate', ['on' => 'remote', 'confirm' => $confirm()])
     set -e
-    cd {{ $remote['path'] }}
+    cd {{ $remote->path }}
     echo "## Migrating the remote database"
-    {{ $remote['php'] }} artisan migrate --force --ansi
+    {{ $remote->php }} artisan migrate --force --ansi
 @endtask
 
 @task('optimize', ['on' => 'remote'])
     set -e
-    cd {{ $remote['path'] }}
-    {{ $remote['php'] }} artisan optimize
+    cd {{ $remote->path }}
+    {{ $remote->php }} artisan optimize
 @endtask
 
 @task('clear', ['on' => 'remote'])
     set -e
-    cd {{ $remote['path'] }}
-    {{ $remote['php'] }} artisan optimize:clear
+    cd {{ $remote->path }}
+    {{ $remote->php }} artisan optimize:clear
 @endtask
 
 {{--
@@ -443,67 +488,67 @@
 
 @task('db-dump', ['on' => 'remote'])
     set -e
-    mkdir -p {{ $remote['dumps'] }}
-    echo "## Dumping remote database {{ $remote['db']['database'] }}"
-    MYSQL_PWD='{{ $remote['db']['password'] }}' mysqldump \
-        --host={{ $remote['db']['host'] }} --port={{ $remote['db']['port'] }} \
-        --user={{ $remote['db']['username'] }} \
+    mkdir -p {{ $remote->dumps }}
+    echo "## Dumping remote database {{ $remote->db->database }}"
+    MYSQL_PWD='{{ $remote->db->password }}' mysqldump \
+        --host={{ $remote->db->host }} --port={{ $remote->db->port }} \
+        --user={{ $remote->db->username }} \
         {{ $dump_flags }} \
-        {{ $ignore($remote['db']['database']) }} \
-        {{ $remote['db']['database'] }} > {{ $remote['dumps'] }}/{{ $dump_latest }}
-    cp {{ $remote['dumps'] }}/{{ $dump_latest }} {{ $remote['dumps'] }}/{{ $dump_stamp }}
-    ls -lh {{ $remote['dumps'] }}/{{ $dump_latest }}
+        {{ $ignore($remote->db->database) }} \
+        {{ $remote->db->database }} > {{ $remote->dumps }}/{{ $dump_latest }}
+    cp {{ $remote->dumps }}/{{ $dump_latest }} {{ $remote->dumps }}/{{ $dump_stamp }}
+    ls -lh {{ $remote->dumps }}/{{ $dump_latest }}
 @endtask
 
 @task('db-dump-local', ['on' => 'local'])
     set -e
-    mkdir -p {{ $local['dumps'] }}
-    echo "## Dumping local database {{ $local['db']['database'] }}"
-    MYSQL_PWD='{{ $local['db']['password'] }}' mysqldump \
-        --host={{ $local['db']['host'] }} --port={{ $local['db']['port'] }} \
-        --user={{ $local['db']['username'] }} \
+    mkdir -p {{ $local->dumps }}
+    echo "## Dumping local database {{ $local->db->database }}"
+    MYSQL_PWD='{{ $local->db->password }}' mysqldump \
+        --host={{ $local->db->host }} --port={{ $local->db->port }} \
+        --user={{ $local->db->username }} \
         {{ $dump_flags }} \
-        {{ $ignore($local['db']['database']) }} \
-        {{ $local['db']['database'] }} > {{ $local['dumps'] }}/{{ $dump_latest }}
-    cp {{ $local['dumps'] }}/{{ $dump_latest }} {{ $local['dumps'] }}/{{ $dump_stamp }}
-    ls -lh {{ $local['dumps'] }}/{{ $dump_latest }}
+        {{ $ignore($local->db->database) }} \
+        {{ $local->db->database }} > {{ $local->dumps }}/{{ $dump_latest }}
+    cp {{ $local->dumps }}/{{ $dump_latest }} {{ $local->dumps }}/{{ $dump_stamp }}
+    ls -lh {{ $local->dumps }}/{{ $dump_latest }}
 @endtask
 
 @task('db-download', ['on' => 'local'])
     set -e
-    mkdir -p {{ $local['dumps'] }}
+    mkdir -p {{ $local->dumps }}
     echo "## Downloading dump from the remote"
-    scp {{ $scp_flag }} {{ $remote['ssh'] }}:{{ $remote['dumps'] }}/{{ $dump_latest }} {{ $local['dumps'] }}/{{ $dump_latest }}
-    cp {{ $local['dumps'] }}/{{ $dump_latest }} {{ $local['dumps'] }}/{{ $dump_stamp }}
+    scp {{ $scp_flag }} {{ $remote->ssh }}:{{ $remote->dumps }}/{{ $dump_latest }} {{ $local->dumps }}/{{ $dump_latest }}
+    cp {{ $local->dumps }}/{{ $dump_latest }} {{ $local->dumps }}/{{ $dump_stamp }}
 @endtask
 
 {{-- Sends the dump you already have. It never reaches for a fresher one. --}}
 
 @task('db-upload', ['on' => 'local'])
     set -e
-    if [ ! -f {{ $local['dumps'] }}/{{ $dump_latest }} ]; then
-        echo "## No dump at {{ $local['dumps'] }}/{{ $dump_latest }}"
+    if [ ! -f {{ $local->dumps }}/{{ $dump_latest }} ]; then
+        echo "## No dump at {{ $local->dumps }}/{{ $dump_latest }}"
         echo "##   run 'envoy run db-pull' first, or 'envoy run db-dump-local'"
         exit 1
     fi
     echo "## Uploading {{ $dump_latest }} to the remote"
-    ssh {{ $ssh_flag }} {{ $remote['ssh'] }} "mkdir -p {{ $remote['dumps'] }}"
-    scp {{ $scp_flag }} {{ $local['dumps'] }}/{{ $dump_latest }} {{ $remote['ssh'] }}:{{ $remote['dumps'] }}/{{ $dump_latest }}
+    ssh {{ $ssh_flag }} {{ $remote->ssh }} "mkdir -p {{ $remote->dumps }}"
+    scp {{ $scp_flag }} {{ $local->dumps }}/{{ $dump_latest }} {{ $remote->ssh }}:{{ $remote->dumps }}/{{ $dump_latest }}
 @endtask
 
 @task('db-import', ['on' => 'local', 'confirm' => $confirm()])
     set -e
-    cd {{ $local['path'] }}
-    echo "## Rebuilding local schema from migrations on {{ $remote['branch'] }}"
-    git checkout {{ $remote['branch'] }} --quiet
+    cd {{ $local->path }}
+    echo "## Rebuilding local schema from migrations on {{ $remote->branch }}"
+    git checkout {{ $remote->branch }} --quiet
     php artisan migrate:fresh --drop-views --force --quiet
     echo "## Importing {{ $dump_latest }}"
-    MYSQL_PWD='{{ $local['db']['password'] }}' mysql \
-        --host={{ $local['db']['host'] }} --port={{ $local['db']['port'] }} \
-        --user={{ $local['db']['username'] }} \
-        {{ $local['db']['database'] }} < {{ $local['dumps'] }}/{{ $dump_latest }}
-    echo "## Back to {{ $local['branch'] }}, applying newer migrations"
-    git checkout {{ $local['branch'] }} --quiet
+    MYSQL_PWD='{{ $local->db->password }}' mysql \
+        --host={{ $local->db->host }} --port={{ $local->db->port }} \
+        --user={{ $local->db->username }} \
+        {{ $local->db->database }} < {{ $local->dumps }}/{{ $dump_latest }}
+    echo "## Back to {{ $local->branch }}, applying newer migrations"
+    git checkout {{ $local->branch }} --quiet
     php artisan migrate --force --quiet
     php artisan optimize:clear --quiet
 @endtask
@@ -516,20 +561,20 @@
 
 @task('db-import-remote', ['on' => 'remote', 'confirm' => $confirm()])
     set -e
-    cd {{ $remote['path'] }}
-    if [ ! -f {{ $remote['dumps'] }}/{{ $dump_latest }} ]; then
-        echo "## No dump at {{ $remote['dumps'] }}/{{ $dump_latest }}"
+    cd {{ $remote->path }}
+    if [ ! -f {{ $remote->dumps }}/{{ $dump_latest }} ]; then
+        echo "## No dump at {{ $remote->dumps }}/{{ $dump_latest }}"
         echo "##   run 'envoy run db-push' to send one, or 'envoy run db-upload' on its own"
         exit 1
     fi
     echo "## Rebuilding the remote schema and importing {{ $dump_latest }}"
-    {{ $remote['php'] }} artisan migrate:fresh --drop-views --force --quiet
-    MYSQL_PWD='{{ $remote['db']['password'] }}' mysql \
-        --host={{ $remote['db']['host'] }} --port={{ $remote['db']['port'] }} \
-        --user={{ $remote['db']['username'] }} \
-        {{ $remote['db']['database'] }} < {{ $remote['dumps'] }}/{{ $dump_latest }}
-    {{ $remote['php'] }} artisan migrate --force --quiet
-    {{ $remote['php'] }} artisan optimize:clear --quiet
+    {{ $remote->php }} artisan migrate:fresh --drop-views --force --quiet
+    MYSQL_PWD='{{ $remote->db->password }}' mysql \
+        --host={{ $remote->db->host }} --port={{ $remote->db->port }} \
+        --user={{ $remote->db->username }} \
+        {{ $remote->db->database }} < {{ $remote->dumps }}/{{ $dump_latest }}
+    {{ $remote->php }} artisan migrate --force --quiet
+    {{ $remote->php }} artisan optimize:clear --quiet
 @endtask
 
 {{-- SQLite projects transfer the file itself instead of dumping. --}}
@@ -538,16 +583,16 @@
     set -e
     echo "## Downloading the remote sqlite database"
     rsync {{ $rsync_opts }} --backup --suffix=.bak \
-        {{ $remote['ssh'] }}:{{ $remote['db']['sqlite'] ?: $remote['path'] . '/database/database.sqlite' }} \
-        {{ $local['db']['sqlite'] }}
+        {{ $remote->ssh }}:{{ $remote->db->sqlite }} \
+        {{ $local->db->sqlite }}
 @endtask
 
 @task('db-push-sqlite', ['on' => 'local', 'confirm' => $confirm()])
     set -e
     echo "## Uploading local sqlite database to the remote"
     rsync {{ $rsync_opts }} --backup --suffix=.bak \
-        {{ $local['db']['sqlite'] }} \
-        {{ $remote['ssh'] }}:{{ $remote['db']['sqlite'] ?: $remote['path'] . '/database/database.sqlite' }}
+        {{ $local->db->sqlite }} \
+        {{ $remote->ssh }}:{{ $remote->db->sqlite }}
 @endtask
 
 {{--
@@ -563,10 +608,10 @@
 @endif
 @foreach ($sync_pull_dirs as $e)
     echo "## remote:{{ $e['path'] }} -> local"
-    mkdir -p {{ $local['path'] }}/{{ $e['path'] }}
+    mkdir -p {{ $local->path }}/{{ $e['path'] }}
     rsync {{ $rsync_opts }} {{ $e['opts'] }} \
-        {{ $remote['ssh'] }}:{{ $remote['path'] }}/{{ $e['path'] }}/ \
-        {{ $local['path'] }}/{{ $e['path'] }}/
+        {{ $remote->ssh }}:{{ $remote->path }}/{{ $e['path'] }}/ \
+        {{ $local->path }}/{{ $e['path'] }}/
 @endforeach
 @endtask
 
@@ -577,10 +622,10 @@
 @endif
 @foreach ($sync_push_dirs as $e)
     echo "## local:{{ $e['path'] }} -> remote"
-    ssh {{ $ssh_flag }} {{ $remote['ssh'] }} "mkdir -p {{ $remote['path'] }}/{{ $e['path'] }}"
+    ssh {{ $ssh_flag }} {{ $remote->ssh }} "mkdir -p {{ $remote->path }}/{{ $e['path'] }}"
     rsync {{ $rsync_opts }} {{ $e['opts'] }} \
-        {{ $local['path'] }}/{{ $e['path'] }}/ \
-        {{ $remote['ssh'] }}:{{ $remote['path'] }}/{{ $e['path'] }}/
+        {{ $local->path }}/{{ $e['path'] }}/ \
+        {{ $remote->ssh }}:{{ $remote->path }}/{{ $e['path'] }}/
 @endforeach
 @endtask
 
