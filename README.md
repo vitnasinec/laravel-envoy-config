@@ -26,7 +26,7 @@ the dump directory to `.gitignore`:
 | Direction | **pull = remote → local**, **push = local → remote**, same as git |
 | Target | **pushes go to dev, pulls come from prod** — the direction picks the server |
 | Overriding it | `--prod`, `--dev` or `--on=prod` pins both directions for one run |
-| Source of truth | declared per project in `ENVOY_SYNC_ALL`, never remembered |
+| Source of truth | the directories are declared per project in `ENVOY_STORAGE_SYNC`, never remembered |
 | Env keys | `<ENV>_<THING>`, e.g. `PROD_DB_PASSWORD` (not `DB_PROD_PASSWORD`) |
 
 Production is the source of truth and dev is the safe place to write, so the
@@ -58,7 +58,6 @@ All four take `--prod` to target production, and confirm before touching it.
 | `db-import --dev` | Imports the `dump--latest.sql` already on dev — the one the last `db-push` uploaded — into dev's database. Uploads nothing; errors if dev has no dump. |
 | `db-pull` | prod → local, end to end: `db-dump` → download → `db-import`. |
 | `db-push` | local → **dev**, end to end: dump local → upload → import on dev. |
-| `db-sync` | Runs `db-pull` or `db-push` per the `db-pull` / `db-push` entry in `ENVOY_SYNC_ALL`. No entry, nothing to do. |
 
 **Imports never run on production.** `db-import --prod` and `db-push --prod`
 exit non-zero. This is not a confirmation prompt you can click through — when
@@ -86,12 +85,6 @@ envoy run storage-push --dir=public/uploads --delete
 envoy run storage-pull --dir=storage/media --dry
 ```
 
-### Everything
-
-| Command | Does |
-|---|---|
-| `sync-all` | The whole `ENVOY_SYNC_ALL` declaration in one run: `db-sync`, then `storage-sync`. An undeclared half says so and moves nothing, so on a files-only project this is just `storage-sync`. |
-
 ### Building blocks
 
 Each is runnable on its own: `git-push` `git-repush` `git-pull` `git-reset`
@@ -106,50 +99,25 @@ you mirror it down; on others you author locally and publish upward; on plenty
 it's a mix. That belongs in config, not in your head. Declare it once:
 
 ```dotenv
-ENVOY_SYNC_ALL="db-pull, storage-push --dir=storage/app, storage-pull --dir=storage/media"
+ENVOY_STORAGE_SYNC="storage-push --dir=storage/app, storage-pull --dir=storage/media"
 ```
 
 There is no second syntax to learn: an entry is the command you would have
 typed, with the flags you would have typed. Entries are comma separated, each
-one `db-pull`, `db-push`, or a `storage-pull` / `storage-push` naming the one
-directory it moves with `--dir=`, project-relative. One directory per entry;
-repeat the command for a second one. **Anything not listed is never touched in
-either direction** — leave out `db-pull` / `db-push` and only files move.
+one a `storage-pull` or `storage-push` naming the one directory it moves with
+`--dir=`, project-relative. One directory per entry; repeat the command for a
+second one. **Anything not listed is never touched in either direction.**
 
-### The directories on their own key
+Every storage command reads the result: `storage-pull` pulls what the pull
+entries name, `storage-push` pushes what the push entries name, and
+`storage-sync` does both in one run.
 
-A project that moves four directories turns that one line into a paragraph, so
-the storage half can live on `ENVOY_STORAGE_SYNC` instead. `ENVOY_SYNC_ALL`
-then says `storage-sync` where those directories belong:
+Nothing is assumed anywhere: there is no built-in directory behind any of it,
+so with nothing declared `storage-pull` / `storage-push` move nothing until you
+pass `--dir`. Files move where you said so and nowhere else.
 
-```dotenv
-ENVOY_SYNC_ALL="db-pull, storage-sync"
-ENVOY_STORAGE_SYNC="storage-push --dir=storage/app --delete, storage-pull --dir=storage/media"
-```
-
-Same entries, same flags, `storage-*` only — `db-pull` in there is rejected, as
-is a nested `storage-sync`. The two are the same declaration written in two
-places, and every storage command reads the result: `storage-pull` pulls what
-the pull entries name, wherever they were written.
-
-`ENVOY_SYNC_ALL` is still the whole picture and still wins. It is read in
-order, and naming a directory yourself is what overrides the key —
-`storage-sync` first, then your exception:
-
-```dotenv
-ENVOY_SYNC_ALL="db-pull, storage-sync, storage-push --dir=storage/media"
-```
-
-Leave `storage-sync` out entirely and `ENVOY_STORAGE_SYNC` is never read, so a
-project can keep declaring everything on the one line as before.
-
-Nothing is assumed anywhere: there is no built-in directory behind
-`storage-sync`, so an undeclared one moves nothing, and neither does a
-`storage-pull` / `storage-push` run with no `--dir` and nothing declared. Files
-move where you said so and nowhere else.
-
-`sync-all` is that whole declaration run as one command — the name is the key's
-name, and what it does is whatever the key says.
+The database has no such key — `db-pull` and `db-push` say the direction in
+their own name, so run the one you mean.
 
 ### Per-entry flags
 
@@ -157,7 +125,7 @@ name, and what it does is whatever the key says.
 applies to that entry alone:
 
 ```dotenv
-ENVOY_SYNC_ALL="db-pull, storage-push --dir=storage/app --delete, storage-pull --dir=storage/media"
+ENVOY_STORAGE_SYNC="storage-push --dir=storage/app --delete, storage-pull --dir=storage/media"
 ```
 
 | Flag | |
@@ -172,10 +140,9 @@ server should mirror it exactly. `envoy run storage-push --delete` turns it on
 for one run everywhere; nothing turns it back off, because off is where it
 starts.
 
-`--dir` and `--delete` belong to `storage-*` entries only; `db-pull --delete`
-is rejected rather than silently ignored, as are unknown flags, misspellings, a
-`storage-pull` with nothing to pull, and a `--dir` carrying more than one
-path.
+Bad declarations are rejected rather than silently ignored: an entry that is
+not a `storage-pull` / `storage-push`, an unknown flag, a misspelling, an entry
+naming no directory, and a `--dir` carrying more than one path.
 
 ## Env keys
 
@@ -205,14 +172,9 @@ prod, and a project with only `PROD_SSH_HOST` set uses production for both.
 |---|---|
 | `ENVOY_DUMP_PATH` | where dumps are kept locally — `./storage/envoy`, which belongs in `.gitignore` |
 | `ENVOY_BUILD_ASSETS` | whether `deploy` and `code-push` build on the server. Leave it empty to auto-detect (true when `package.json` has a `build` script); set `false` for projects with no front-end build, or that commit built assets. `--build` / `--nobuild` override it for one run. |
-| `ENVOY_SYNC_ALL` | which way the data flows — see [above](#which-way-does-the-data-go) |
-| `ENVOY_STORAGE_SYNC` | the storage directories, when you'd rather keep them off the `ENVOY_SYNC_ALL` line |
+| `ENVOY_STORAGE_SYNC` | which directories move, and which way — see [above](#which-way-does-the-data-go) |
 | `ENVOY_DB_IGNORE_TABLES` | tables whose data is never carried between environments — migrations, cache, sessions, queues, telescope, pulse |
 | `ENVOY_DB_DUMP_SCHEMA` | `false` (default) dumps data only and lets `migrate:fresh` build the schema; `true` dumps `CREATE TABLE` too |
-
-`ENVOY_SYNC_ALL` was called `ENVOY_SYNC`. A project still on the old name is
-refused with a message rather than quietly falling back to the default
-direction.
 
 ## Flags
 
@@ -220,7 +182,7 @@ direction.
 |---|---|
 | `--prod` / `--dev` / `--on=prod` | pin both directions to one environment |
 | `--force` | on `code-push` / `deploy` / `code-sync`: amend + force-push, hard-reset the remote |
-| `--dir=path` | transfer this project-relative path, ignoring both sync keys |
+| `--dir=path` | transfer this project-relative path, ignoring `ENVOY_STORAGE_SYNC` |
 | `--delete` | force mirroring on for one run, everywhere |
 | `--dry` | rsync dry run with `--itemize-changes` |
 | `--progress` | rsync `--info=progress2` |
