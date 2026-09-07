@@ -20,7 +20,7 @@
 |   envoy run code-push            fast deploy  (alias: push)
 |   envoy run deploy               full deploy — composer install and migrate too
 |   envoy run db-pull              remote database down to local
-|   envoy run storage-push --dir=storage/app/public
+|   envoy run storage-pull         every declared directory, remote -> local
 |   envoy run storage-sync         every declared directory, both ways
 |
 --}}
@@ -157,9 +157,9 @@
     /*
     | Which directories move, and which way. Which files a project mirrors is
     | permanent per project, so it is written down here rather than remembered
-    | at the keyboard: paths are project-relative, and anything not listed is
-    | never touched in either direction. With both lists empty, storage-pull
-    | and storage-push move nothing until you pass --dir.
+    | at the keyboard: these two lists are the only thing the storage commands
+    | read. Paths are project-relative, anything not listed is never touched in
+    | either direction, and with both lists empty they move nothing at all.
     |
     | delete: true makes the destination an exact mirror, which deletes files
     | at the far end that were never here. Off unless asked for.
@@ -269,31 +269,12 @@
     |--------------------------------------------------------------------------
     | Storage
     |--------------------------------------------------------------------------
-    | --dir=public/uploads is the ad-hoc escape hatch: it transfers exactly that
-    | project-relative directory, whether or not the lists above mention it, and
-    | ignores them entirely. One directory per run.
+    | No flag reaches in here. The two lists above are the whole story: what
+    | moves, which way, and whether the far end mirrors deletions is decided in
+    | the config block and nowhere else.
     */
 
-    if (isset($dir)) {
-        $dir_path = trim(trim((string) $dir), '/');
-
-        if ($dir_path === '' || str_contains($dir_path, '..') || str_contains($dir_path, ',')) {
-            throw new RuntimeException(
-                "Envoy: --dir=[{$dir}] needs one project-relative directory, "
-                . 'e.g. --dir=storage/app/public.'
-            );
-        }
-
-        $sync_pull_dirs = [new EnvoySyncDir($dir_path)];
-        $sync_push_dirs = $sync_pull_dirs;
-    }
-
-    // --delete turns mirroring on for one run, everywhere. Read out here, not
-    // inside the closure: an arrow fn captures $force_delete, but an undefined
-    // $delete would simply never be visible in there.
-    $force_delete = isset($delete);
-
-    $sync_opts = fn (EnvoySyncDir $e) => $force_delete || $e->delete ? '--delete' : '';
+    $sync_opts = fn (EnvoySyncDir $e) => $e->delete ? '--delete' : '';
 @endsetup
 
 @servers($servers)
@@ -531,7 +512,7 @@
 @task('storage-pull', ['on' => 'local'])
     set -e
 @if (! $sync_pull_dirs)
-    echo '## Nothing is declared to pull — see the sync_pull_dirs list in Envoy.blade.php, or pass --dir=<path>'
+    echo '## Nothing is declared to pull — see the sync_pull_dirs list in Envoy.blade.php'
 @endif
 @foreach ($sync_pull_dirs as $e)
     echo "## remote:{{ $e->path }} -> local"
@@ -545,7 +526,7 @@
 @task('storage-push', ['on' => 'local', 'confirm' => $confirm()])
     set -e
 @if (! $sync_push_dirs)
-    echo '## Nothing is declared to push — see the sync_push_dirs list in Envoy.blade.php, or pass --dir=<path>'
+    echo '## Nothing is declared to push — see the sync_push_dirs list in Envoy.blade.php'
 @endif
 @foreach ($sync_push_dirs as $e)
     echo "## local:{{ $e->path }} -> remote"

@@ -108,16 +108,15 @@ SQLite projects transfer the file itself: set `$sqlite = true` and `db-pull` /
 |---|---|
 | `storage-pull` | rsyncs every directory in `$sync_pull_dirs`, remote → local. |
 | `storage-push` | rsyncs every directory in `$sync_push_dirs`, local → remote. Always confirms. |
-| `storage-push --dir=path` | Ad-hoc: transfers exactly that project-relative path, declared or not. One path per run. Works on `storage-pull` too. |
 | `storage-sync` | Both declared directions in one run. |
 
-`--dir` paths are relative to the project root and are not confined to
-`storage/`, so `--dir=public/uploads` works:
+There is no ad-hoc path flag. What moves is whatever the two lists in the file
+name, so a one-off transfer is an edit to the list, not a flag at the keyboard:
 
 ```sh
-envoy run storage-push --dir=storage/app/public
-envoy run storage-push --dir=public/uploads --delete
-envoy run storage-pull --dir=storage/media --dry
+envoy run storage-pull
+envoy run storage-push
+envoy run storage-sync --dry
 ```
 
 ### Building blocks
@@ -148,8 +147,8 @@ does both in one run. Paths are project-relative, one directory per entry.
 **Anything not listed is never touched in either direction.**
 
 Nothing is assumed anywhere: there is no built-in directory behind any of it,
-so with both lists empty `storage-pull` / `storage-push` move nothing until you
-pass `--dir`. Files move where you said so and nowhere else.
+and no flag adds one, so with both lists empty `storage-pull` / `storage-push`
+move nothing at all. Files move where you said so and nowhere else.
 
 The database has no such list — `db-pull` and `db-push` say the direction in
 their own name, so run the one you mean.
@@ -160,17 +159,15 @@ their own name, so run the one you mean.
 that entry alone. It is **off by default in both directions** — it deletes
 files at the far end that were never here, which is rarely what you meant. Put
 it on the one entry that needs it, as above, where `storage/app` is authored
-locally and the server should mirror it exactly. `envoy run storage-push
---delete` turns it on for one run everywhere; nothing turns it back off,
-because off is where it starts.
+locally and the server should mirror it exactly. There is no flag that turns
+mirroring on for a run: a command that deletes files at the far end is one you
+decide once, in the file, where the next person can read it.
 
 ## Flags
 
 | Flag | Effect |
 |---|---|
 | `--force` | on `code-push` / `deploy`: amend + force-push, hard-reset the remote |
-| `--dir=path` | transfer this project-relative path, ignoring the declared lists |
-| `--delete` | force mirroring on for one run, everywhere |
 | `--dry` | rsync dry run with `--itemize-changes` |
 | `--build` / `--nobuild` | force or skip `npm-build` in `code-push` / `deploy` |
 | `--noconfirm` | answer every confirmation in advance, for unattended runs |
