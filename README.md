@@ -1,23 +1,37 @@
-# Shared Laravel Envoy template
+# laravel-envoy-config
 
-One `Envoy.blade.php` for every project. Copy it in, edit the **Config block**
-at the top — the remote, the local database, which directories mirror — and
-that is the setup. The only thing it reads from `.env` is the database
-usernames and passwords, because this file is committed and those are not.
+One Envoy setup for every project. The tasks live in `vendor` and update with
+composer; the project keeps a single **Config object** — the remote, the local
+database, which directories mirror — and imports the rest.
+
+```php
+$envoy = new Config(
+    remote: new Environment(ssh: 'me@example.com', path: '~/code/stage1', ...),
+    local:  Environment::local(db: new Database('example_db', ...)),
+    pull:   [new SyncDir('storage/app')],
+);
+```
+
+The only thing read from `.env` is the database usernames and passwords,
+because `Envoy.blade.php` is committed and those are not.
 
 ## Install
 
 ```sh
-composer require --dev laravel/envoy
-curl -o Envoy.blade.php https://raw.githubusercontent.com/vitnasinec/laravel-envoy-config/main/Envoy.blade.php
+composer require --dev vitnasinec/laravel-envoy-config
+cp vendor/vitnasinec/laravel-envoy-config/stubs/Envoy.blade.php Envoy.blade.php
 ```
 
-Then edit the Config block, append the two keys from `.env.example` to the
-project's `.env`, and add the dump directory to `.gitignore`:
+`laravel/envoy` comes with it. Then edit the config block, append the two keys
+from `.env.example` to the project's `.env`, and add the dump directory to
+`.gitignore`:
 
 ```
 /storage/envoy
 ```
+
+Updating is `composer update vitnasinec/laravel-envoy-config` — the project's
+`Envoy.blade.php` is yours and is never touched.
 
 ## Conventions
 
@@ -28,37 +42,49 @@ project's `.env`, and add the dump directory to `.gitignore`:
 | Direction | **pull = remote → local**, **push = local → remote**, same as git |
 | Target | there is only one remote, so no command takes a target flag |
 | Writes to the remote | always confirm first; `--noconfirm` answers in advance |
-| Configuration | hard-coded in the Config block, one place, no indirection |
+| Configuration | one object, in the project's file, no indirection |
 | Secrets | the database usernames and passwords, from `.env`, and nothing else |
 
 ## Config
 
-Everything is in the one block at the top of `Envoy.blade.php`, between the
-`Config` banner and `End of config`. Two typed objects, two lists, one flag:
+Everything is one `Config` object in the project's `Envoy.blade.php`, above the
+`@import` line. Two environments, two mirror lists, one flag.
 
 ```php
-$remote = new EnvoyEnvironment(
-    ssh: 'exampleuser@example.pef.czu.cz',   // or the bare host, if ~/.ssh/config knows the user
-    port: 22,
-    path: '~/code/stage1',                   // project root on the server
-    dumps: '~/code/temp',                    // where dumps are written there
-    branch: 'main',                          // the branch the server runs
-    php: 'php',                              // absolute paths for hosts that lack them on PATH,
-    composer: 'composer',                    //   e.g. '/opt/alt/php83/usr/bin/php'
-    npm: 'npm',                              //   or  'php ~/code/bin/composer'
-    db: new EnvoyDatabase(
-        host: '127.0.0.1',
-        port: 3306,
-        database: 'example_db',
-        username: $env('PROD_DB_USERNAME'),  // .env
-        password: $env('PROD_DB_PASSWORD'),  // .env
+$envoy = new Config(
+    remote: new Environment(
+        ssh: 'exampleuser@example.pef.czu.cz',   // or the bare host, if ~/.ssh/config knows the user
+        port: 22,
+        path: '~/code/stage1',                   // project root on the server
+        dumps: '~/code/temp',                    // where dumps are written there
+        branch: 'main',                          // the branch the server runs
+        php: 'php',                              // absolute paths for hosts that lack them on PATH,
+        composer: 'composer',                    //   e.g. '/opt/alt/php83/usr/bin/php'
+        npm: 'npm',                              //   or  'php ~/code/bin/composer'
+        db: new Database(
+            database: 'example_db',
+            host: '127.0.0.1',
+            port: 3306,
+            username: Env::get('PROD_DB_USERNAME'),  // .env
+            password: Env::get('PROD_DB_PASSWORD'),  // .env
+        ),
     ),
+    local: Environment::local(
+        db: new Database(
+            database: 'example_db',
+            username: Env::get('DB_USERNAME'),
+            password: Env::get('DB_PASSWORD'),
+        ),
+    ),
+    pull: [new SyncDir('storage/app')],
+    push: [],
+    build: true,
 );
 ```
 
-`$local` is the same object with `path`, `dumps` and `branch` worked out from
-where the file sits and which branch you are on; edit its database, and leave
-the rest alone.
+`Environment::local()` works `path`, `dumps` and `branch` out from where the
+project sits and which branch you are on, so the local end is just its
+database. Pass any of them explicitly to override.
 
 `database` says which kind of project this is, so there is no separate switch
 for it. A plain name is MySQL. A path ending in `.sqlite` is SQLite — `db-pull`
@@ -66,13 +92,7 @@ and `db-push` transfer that file instead of dumping, and `host`, `port`,
 `username` and `password` go unused:
 
 ```php
-db: new EnvoyDatabase(
-    host: null,
-    port: null,
-    database: '~/code/stage1/database/database.sqlite',
-    username: null,
-    password: null,
-),
+db: new Database('~/code/stage1/database/database.sqlite'),
 ```
 
 Both ends have to be the same kind — two names, or two `.sqlite` paths. A
@@ -80,9 +100,9 @@ mismatch is a typo, not a transfer, and the file refuses to run.
 
 | Setting | |
 |---|---|
-| `$sync_pull_dirs` `$sync_push_dirs` | which directories move, and which way — see [below](#which-way-does-the-data-go) |
-| `$build_assets` | whether `deploy` and `code-push` build on the server; `false` for projects with no front-end build, or that commit built assets. `--build` / `--nobuild` override it for one run |
-| `$ignore_tables` | tables whose data is never carried between environments — migrations, cache, sessions, queues, telescope, pulse |
+| `pull:` `push:` | which directories move, and which way — see [below](#which-way-does-the-data-go) |
+| `build:` | whether `deploy` and `code-push` build on the server; `false` for projects with no front-end build, or that commit built assets. `--build` / `--nobuild` override it for one run |
+| `ignoreTables:` | tables whose data is never carried between environments. Defaults to `Config::IGNORE_TABLES` — migrations, cache, sessions, queues, telescope, pulse. Extend it rather than replacing it: `[...Config::IGNORE_TABLES, 'audits']` |
 
 `branch` matters more than it looks: `db-import` checks that branch out locally
 to build the right schema before importing, then puts you back.
@@ -123,8 +143,8 @@ keeping a `.bak` at the destination. Nothing else changes.
 
 | Command | Does |
 |---|---|
-| `storage-pull` | rsyncs every directory in `$sync_pull_dirs`, remote → local. |
-| `storage-push` | rsyncs every directory in `$sync_push_dirs`, local → remote. Always confirms. |
+| `storage-pull` | rsyncs every directory in `pull:`, remote → local. |
+| `storage-push` | rsyncs every directory in `push:`, local → remote. Always confirms. |
 | `storage-sync` | Both declared directions in one run. |
 
 There is no ad-hoc path flag. What moves is whatever the two lists in the file
@@ -149,13 +169,13 @@ you mirror it down; on others you author locally and publish upward; on plenty
 it's a mix. That belongs in the file, not in your head. Write it down once:
 
 ```php
-$sync_pull_dirs = [
-    new EnvoySyncDir('storage/media'),
-];
+pull: [
+    new SyncDir('storage/media'),
+],
 
-$sync_push_dirs = [
-    new EnvoySyncDir('storage/app', delete: true),
-];
+push: [
+    new SyncDir('storage/app', delete: true),
+],
 ```
 
 Every storage command reads those two lists: `storage-pull` pulls what the
@@ -189,6 +209,41 @@ decide once, in the file, where the next person can read it.
 | `--build` / `--nobuild` | force or skip `npm-build` in `code-push` / `deploy` |
 | `--noconfirm` | answer every confirmation in advance, for unattended runs |
 
+Envoy stops parsing its own options at the first one it doesn't know, so put
+`--pretend` and `--continue` *before* any of the above.
+
+## Project-specific tasks
+
+They go below the `@import`, in the project's own file, where an update cannot
+reach them. `$envoy` is the only name in scope there — the shorthands the
+shared tasks use (`$remote`, `$local`) are local to the imported file:
+
+```blade
+@import('vitnasinec/laravel-envoy-config')
+
+@task('dev-seed', ['on' => 'local'])
+    cd {{ $envoy->local->path }}
+    {{ $envoy->local->php }} artisan db:seed --class=DevSeeder
+@endtask
+
+@story('refresh')
+    db-pull
+    dev-seed
+@endstory
+```
+
+## Layout
+
+| | |
+|---|---|
+| `stubs/Envoy.blade.php` | what you copy into a project: the config block, and the import |
+| `Envoy.blade.php` | the tasks and stories, imported from `vendor` and never edited |
+| `src/Config.php` | the whole configuration, plus everything derived from it |
+| `src/Environment.php` | one end of the map, and the ssh / scp / rsync spellings of its port |
+| `src/Database.php` | one database, and whether it is a MySQL schema or a SQLite file |
+| `src/SyncDir.php` | one directory that mirrors |
+| `src/Env.php` | the two credential pairs, out of the project's `.env` |
+
 ## Notes
 
 - `code-push` moves the *remote* onto your local branch. Your working copy is
@@ -204,16 +259,15 @@ decide once, in the file, where the next person can read it.
   handing `mysql` an empty `--user=`.
 - `set -e` in every task, so a failed `git pull` cannot leave `migrate` and
   `artisan up` running behind it.
-- The two environments are typed objects, not nested arrays — `$remote->db->password`,
+- The config is typed objects, not nested arrays — `$envoy->remote->db->password`,
   not `$remote['db']['password']`. Every one of those values is spliced into a
   shell command, and a mistyped array key would have arrived there as an empty
-  string; a mistyped property is a fatal error before anything runs. They are
-  plain data holders with **no methods**: Envoy's compiler regex-scans the whole
-  file for `$name` and prepends `$name = isset($name) ? $name : null;` for each
-  one it finds, so a method body mentioning `$this` compiles into `$this = …`
-  and dies on `Cannot re-assign $this`. Anything derived — whether a database is
-  SQLite, which `--ignore-table` flags a dump needs — is a closure taking the
-  object, below the config block. Needs PHP 8.1 for `readonly`.
-- Per-project quirks (a `permission_name` virtual-column dance, a `DevSeeder`,
-  extra ignore tables) stay in that project's file as an extra task appended
-  below the template — the shared part stays shared.
+  string; a mistyped property is a fatal error before anything runs.
+- Those objects have methods now, which is the point of them being real files.
+  Envoy's compiler regex-scans a `.blade.php` for `$name` and prepends
+  `$name = isset($name) ? $name : null;` for each one it finds, so a class
+  written *inside* the template could not use `$this` — it compiled into
+  `$this = …` and died on `Cannot re-assign $this`. In `src/` that limit is
+  gone: `isSqlite()`, `ignoreFlags()`, `sshFlag()` and the rest sit on the
+  objects they belong to instead of being closures below the config block.
+- Requires PHP 8.1 for `readonly`.
