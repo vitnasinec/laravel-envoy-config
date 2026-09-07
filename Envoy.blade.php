@@ -7,24 +7,20 @@
 | keys from envoy.env.example into the project's .env, and it should work
 | without editing anything in here.
 |
-| Environments   local, dev, prod   (always these three names)
+| Environments   local and one remote — that is the whole map
 | Direction      push = local -> remote,  pull = remote -> local
-| Target         pushes go to dev, pulls come from prod, unless you say
-|                otherwise with --prod / --dev / --on=
 |
-| Production is the source of truth, dev is the safe place to write, so the
-| direction of a command already implies which server it means. Imports never
-| run on production at all — the task refuses rather than prompts.
+| There is no server to choose, so no command takes a target flag. Everything
+| that writes to the remote asks first; --noconfirm answers for scripts.
 |
 | The directories this project mirrors are declared once in ENVOY_STORAGE_SYNC:
 |
 |   ENVOY_STORAGE_SYNC="storage-push --dir=storage/app, storage-pull --dir=storage/media"
 |
 | Common commands
-|   envoy run code-push            fast deploy to dev  (alias: push)
-|   envoy run code-sync            deploy both remotes (alias: sync)
-|   envoy run deploy --prod        full deploy to production
-|   envoy run db-pull              production database down to local
+|   envoy run code-push            fast deploy  (alias: push)
+|   envoy run deploy               full deploy — composer install and migrate too
+|   envoy run db-pull              remote database down to local
 |   envoy run storage-push --dir=storage/app/public
 |   envoy run storage-sync         every declared directory, both ways
 |
@@ -60,53 +56,41 @@
 
     /*
     |--------------------------------------------------------------------------
-    | Remote environments
+    | The remote
     |--------------------------------------------------------------------------
-    | Only the ones with a *_SSH_HOST in .env are registered, so a project
-    | with production only needs no changes here.
+    | One server, on the PROD_ keys. PROD_SSH_HOST is what makes the rest of
+    | this file mean anything, so its absence is an error, not a default.
     */
 
-    $environments = [];
-
-    foreach (['prod', 'dev'] as $name) {
-        $p = strtoupper($name) . '_';
-
-        if (! $cfg($p . 'SSH_HOST')) {
-            continue;
-        }
-
-        $environments[$name] = [
-            'name'     => $name,
-            'user'     => $cfg($p . 'SSH_USER'),
-            'host'     => $cfg($p . 'SSH_HOST'),
-            'port'     => (int) $cfg($p . 'SSH_PORT', 22),
-            'path'     => rtrim($cfg($p . 'PATH', '~/' . basename(__DIR__)), '/'),
-            'dumps'    => rtrim($cfg($p . 'DUMP_PATH', $cfg($p . 'PATH', '~') . '/storage/envoy'), '/'),
-            'php'      => $cfg($p . 'PHP', 'php'),
-            'composer' => $cfg($p . 'COMPOSER', 'composer'),
-            'npm'      => $cfg($p . 'NPM', 'npm'),
-            'branch'   => $cfg($p . 'BRANCH', $name === 'prod' ? 'main' : 'dev'),
-            'db' => [
-                'host'     => $cfg($p . 'DB_HOST', '127.0.0.1'),
-                'port'     => (int) $cfg($p . 'DB_PORT', 3306),
-                'database' => $cfg($p . 'DB_DATABASE'),
-                'username' => $cfg($p . 'DB_USERNAME'),
-                'password' => $cfg($p . 'DB_PASSWORD'),
-                'sqlite'   => $cfg($p . 'DB_SQLITE_PATH'),
-            ],
-        ];
-
-        $environments[$name]['ssh'] = $environments[$name]['user']
-            ? $environments[$name]['user'] . '@' . $environments[$name]['host']
-            : $environments[$name]['host'];
-    }
-
-    if (! $environments) {
+    if (! $cfg('PROD_SSH_HOST')) {
         throw new RuntimeException(
-            'Envoy: no remote is configured. Set PROD_SSH_HOST (and optionally '
-            . 'DEV_SSH_HOST) in .env — see envoy.env.example.'
+            'Envoy: no remote is configured. Set PROD_SSH_HOST in .env — see envoy.env.example.'
         );
     }
+
+    $remote = [
+        'user'     => $cfg('PROD_SSH_USER'),
+        'host'     => $cfg('PROD_SSH_HOST'),
+        'port'     => (int) $cfg('PROD_SSH_PORT', 22),
+        'path'     => rtrim($cfg('PROD_PATH', '~/' . basename(__DIR__)), '/'),
+        'dumps'    => rtrim($cfg('PROD_DUMP_PATH', $cfg('PROD_PATH', '~') . '/storage/envoy'), '/'),
+        'php'      => $cfg('PROD_PHP', 'php'),
+        'composer' => $cfg('PROD_COMPOSER', 'composer'),
+        'npm'      => $cfg('PROD_NPM', 'npm'),
+        'branch'   => $cfg('PROD_BRANCH', 'main'),
+        'db' => [
+            'host'     => $cfg('PROD_DB_HOST', '127.0.0.1'),
+            'port'     => (int) $cfg('PROD_DB_PORT', 3306),
+            'database' => $cfg('PROD_DB_DATABASE'),
+            'username' => $cfg('PROD_DB_USERNAME'),
+            'password' => $cfg('PROD_DB_PASSWORD'),
+            'sqlite'   => $cfg('PROD_DB_SQLITE_PATH'),
+        ],
+    ];
+
+    $remote['ssh'] = $remote['user']
+        ? $remote['user'] . '@' . $remote['host']
+        : $remote['host'];
 
     /*
     |--------------------------------------------------------------------------
@@ -115,7 +99,6 @@
     */
 
     $local = [
-        'name'   => 'local',
         'path'   => __DIR__,
         'dumps'  => rtrim($cfg('ENVOY_DUMP_PATH', __DIR__ . '/storage/envoy'), '/'),
         'branch' => trim((string) shell_exec('git branch --show-current 2>/dev/null')),
@@ -130,49 +113,16 @@
     ];
 
     /*
-    |--------------------------------------------------------------------------
-    | Which remote does each direction mean?
-    |--------------------------------------------------------------------------
-    | Pushes go to dev, pulls come from prod. That is the whole rule, and it is
-    | why `storage-push` and `storage-pull` need no flag to do the safe thing.
-    | An explicit --prod / --dev / --on= pins both directions at once, so one
-    | flag still overrides everything. Projects with a single remote get that
-    | remote for both directions.
+    | Everything that writes to the remote confirms first. --noconfirm answers
+    | it in advance, for a run nobody is sitting in front of.
     */
 
-    $pick = function (string $preferred) use ($environments) {
-        return $environments[$preferred] ?? reset($environments);
-    };
-
-    $push_env = $pick('dev');
-    $pull_env = $pick('prod');
-
-    if (isset($prod)) $push_env = $pull_env = $pick('prod');
-    if (isset($dev))  $push_env = $pull_env = $pick('dev');
-
-    if (isset($on)) {
-        if (! isset($environments[$on])) {
-            throw new RuntimeException(
-                "Envoy: environment [{$on}] is not configured. "
-                . 'Set ' . strtoupper((string) $on) . '_SSH_HOST in .env. '
-                . 'Configured: ' . implode(', ', array_keys($environments)) . '.'
-            );
-        }
-
-        $push_env = $pull_env = $environments[$on];
-    }
-
-    $pushing_to_prod = $push_env['name'] === 'prod';
-
-    // code-sync runs this file again for each remote. The confirmation was
-    // already given once, up front, so the nested runs must not ask again.
     $confirm = fn (bool $when = true) => $when && ! isset($noconfirm);
 
-    $servers = ['local' => '127.0.0.1'];
-
-    foreach (['push' => $push_env, 'pull' => $pull_env] as $role => $e) {
-        $servers[$role] = $e['ssh'] . ($e['port'] !== 22 ? " -p {$e['port']}" : '');
-    }
+    $servers = [
+        'local'  => '127.0.0.1',
+        'remote' => $remote['ssh'] . ($remote['port'] !== 22 ? " -p {$remote['port']}" : ''),
+    ];
 
     /*
     |--------------------------------------------------------------------------
@@ -180,12 +130,14 @@
     |--------------------------------------------------------------------------
     */
 
-    $ssh_flag  = fn (array $e) => $e['port'] !== 22 ? "-p {$e['port']}" : '';
-    $scp_flag  = fn (array $e) => $e['port'] !== 22 ? "-P {$e['port']}" : '';
-    $rsync_ssh = fn (array $e) => $e['port'] !== 22 ? "-e 'ssh -p {$e['port']}'" : '';
+    $ssh_flag = $remote['port'] !== 22 ? "-p {$remote['port']}" : '';
+    $scp_flag = $remote['port'] !== 22 ? "-P {$remote['port']}" : '';
 
-    $rsync_opts = fn (array $e) => trim('-az --human-readable ' . $rsync_ssh($e)
-        . (isset($dry) ? ' --dry-run --itemize-changes' : ''));
+    $rsync_opts = trim(
+        '-az --human-readable '
+        . ($remote['port'] !== 22 ? "-e 'ssh -p {$remote['port']}' " : '')
+        . (isset($dry) ? '--dry-run --itemize-changes' : '')
+    );
 
     /*
     |--------------------------------------------------------------------------
@@ -214,14 +166,6 @@
         fn ($table) => "--ignore-table={$database}.{$table}",
         $ignore_tables
     ));
-
-    /*
-    | `db-import` with no flag means the local database — but the push default
-    | is dev, so it cannot read $push_env. It looks at the flags itself, and
-    | production is refused outright rather than confirmed.
-    */
-
-    $import_remote = isset($dev) || isset($prod) || (isset($on) && $on !== 'local');
 
     /*
     |--------------------------------------------------------------------------
@@ -388,23 +332,23 @@
 |--------------------------------------------------------------------------
 --}}
 
-@task('down', ['on' => 'push'])
+@task('down', ['on' => 'remote'])
     set -e
-    cd {{ $push_env['path'] }}
-    {{ $push_env['php'] }} artisan up --quiet || true
-    {{ $push_env['php'] }} artisan down --render=errors::503
+    cd {{ $remote['path'] }}
+    {{ $remote['php'] }} artisan up --quiet || true
+    {{ $remote['php'] }} artisan down --render=errors::503
 @endtask
 
-@task('up', ['on' => 'push'])
+@task('up', ['on' => 'remote'])
     set -e
-    cd {{ $push_env['path'] }}
-    {{ $push_env['php'] }} artisan up
+    cd {{ $remote['path'] }}
+    {{ $remote['php'] }} artisan up
 @endtask
 
-@task('status', ['on' => 'pull'])
+@task('status', ['on' => 'remote'])
     set -e
-    cd {{ $pull_env['path'] }}
-    echo "## {{ $pull_env['name'] }} @ {{ $pull_env['ssh'] }}:{{ $pull_env['path'] }}"
+    cd {{ $remote['path'] }}
+    echo "## {{ $remote['ssh'] }}:{{ $remote['path'] }}"
     git rev-parse --abbrev-ref HEAD
     git log -1 --oneline
     git status --porcelain
@@ -432,19 +376,19 @@
 
 {{-- The remote is moved onto your local branch; your branch never moves. --}}
 
-@task('git-pull', ['on' => 'push'])
+@task('git-pull', ['on' => 'remote'])
     set -e
-    cd {{ $push_env['path'] }}
-    echo "## Checking out {{ $local['branch'] }} on {{ $push_env['name'] }} and pulling"
+    cd {{ $remote['path'] }}
+    echo "## Checking out {{ $local['branch'] }} on the remote and pulling"
     git fetch --quiet
     git checkout {{ $local['branch'] }} --quiet
     git pull --quiet
 @endtask
 
-@task('git-reset', ['on' => 'push', 'confirm' => $confirm()])
+@task('git-reset', ['on' => 'remote', 'confirm' => $confirm()])
     set -e
-    cd {{ $push_env['path'] }}
-    echo "## Discarding local commits on {{ $push_env['name'] }} and resetting to origin"
+    cd {{ $remote['path'] }}
+    echo "## Discarding local commits on the remote and resetting to origin"
     git fetch --quiet
     git checkout {{ $local['branch'] }} --quiet
     git reset --hard "origin/{{ $local['branch'] }}" --quiet
@@ -457,42 +401,38 @@
 |--------------------------------------------------------------------------
 --}}
 
-@task('composer-install', ['on' => 'push'])
+@task('composer-install', ['on' => 'remote'])
     set -e
-    cd {{ $push_env['path'] }}
+    cd {{ $remote['path'] }}
     echo "## Installing composer dependencies"
-@if ($pushing_to_prod)
-    {{ $push_env['composer'] }} install --no-progress --no-interaction --no-dev --prefer-dist --optimize-autoloader
-@else
-    {{ $push_env['composer'] }} install --no-progress --no-interaction
-@endif
+    {{ $remote['composer'] }} install --no-progress --no-interaction --no-dev --prefer-dist --optimize-autoloader
 @endtask
 
-@task('npm-build', ['on' => 'push'])
+@task('npm-build', ['on' => 'remote'])
     set -e
-    cd {{ $push_env['path'] }}
+    cd {{ $remote['path'] }}
     echo "## Building assets"
-    {{ $push_env['npm'] }} ci --silent || {{ $push_env['npm'] }} install --silent
-    {{ $push_env['npm'] }} run --silent build
+    {{ $remote['npm'] }} ci --silent || {{ $remote['npm'] }} install --silent
+    {{ $remote['npm'] }} run --silent build
 @endtask
 
-@task('migrate', ['on' => 'push', 'confirm' => $confirm($pushing_to_prod)])
+@task('migrate', ['on' => 'remote', 'confirm' => $confirm()])
     set -e
-    cd {{ $push_env['path'] }}
-    echo "## Migrating {{ $push_env['name'] }} database"
-    {{ $push_env['php'] }} artisan migrate --force --ansi
+    cd {{ $remote['path'] }}
+    echo "## Migrating the remote database"
+    {{ $remote['php'] }} artisan migrate --force --ansi
 @endtask
 
-@task('optimize', ['on' => 'push'])
+@task('optimize', ['on' => 'remote'])
     set -e
-    cd {{ $push_env['path'] }}
-    {{ $push_env['php'] }} artisan optimize
+    cd {{ $remote['path'] }}
+    {{ $remote['php'] }} artisan optimize
 @endtask
 
-@task('clear', ['on' => 'push'])
+@task('clear', ['on' => 'remote'])
     set -e
-    cd {{ $push_env['path'] }}
-    {{ $push_env['php'] }} artisan optimize:clear
+    cd {{ $remote['path'] }}
+    {{ $remote['php'] }} artisan optimize:clear
 @endtask
 
 {{--
@@ -501,18 +441,18 @@
 |--------------------------------------------------------------------------
 --}}
 
-@task('db-dump', ['on' => 'pull'])
+@task('db-dump', ['on' => 'remote'])
     set -e
-    mkdir -p {{ $pull_env['dumps'] }}
-    echo "## Dumping {{ $pull_env['name'] }} database {{ $pull_env['db']['database'] }}"
-    MYSQL_PWD='{{ $pull_env['db']['password'] }}' mysqldump \
-        --host={{ $pull_env['db']['host'] }} --port={{ $pull_env['db']['port'] }} \
-        --user={{ $pull_env['db']['username'] }} \
+    mkdir -p {{ $remote['dumps'] }}
+    echo "## Dumping remote database {{ $remote['db']['database'] }}"
+    MYSQL_PWD='{{ $remote['db']['password'] }}' mysqldump \
+        --host={{ $remote['db']['host'] }} --port={{ $remote['db']['port'] }} \
+        --user={{ $remote['db']['username'] }} \
         {{ $dump_flags }} \
-        {{ $ignore($pull_env['db']['database']) }} \
-        {{ $pull_env['db']['database'] }} > {{ $pull_env['dumps'] }}/{{ $dump_latest }}
-    cp {{ $pull_env['dumps'] }}/{{ $dump_latest }} {{ $pull_env['dumps'] }}/{{ $dump_stamp }}
-    ls -lh {{ $pull_env['dumps'] }}/{{ $dump_latest }}
+        {{ $ignore($remote['db']['database']) }} \
+        {{ $remote['db']['database'] }} > {{ $remote['dumps'] }}/{{ $dump_latest }}
+    cp {{ $remote['dumps'] }}/{{ $dump_latest }} {{ $remote['dumps'] }}/{{ $dump_stamp }}
+    ls -lh {{ $remote['dumps'] }}/{{ $dump_latest }}
 @endtask
 
 @task('db-dump-local', ['on' => 'local'])
@@ -532,8 +472,8 @@
 @task('db-download', ['on' => 'local'])
     set -e
     mkdir -p {{ $local['dumps'] }}
-    echo "## Downloading dump from {{ $pull_env['name'] }}"
-    scp {{ $scp_flag($pull_env) }} {{ $pull_env['ssh'] }}:{{ $pull_env['dumps'] }}/{{ $dump_latest }} {{ $local['dumps'] }}/{{ $dump_latest }}
+    echo "## Downloading dump from the remote"
+    scp {{ $scp_flag }} {{ $remote['ssh'] }}:{{ $remote['dumps'] }}/{{ $dump_latest }} {{ $local['dumps'] }}/{{ $dump_latest }}
     cp {{ $local['dumps'] }}/{{ $dump_latest }} {{ $local['dumps'] }}/{{ $dump_stamp }}
 @endtask
 
@@ -541,26 +481,21 @@
 
 @task('db-upload', ['on' => 'local'])
     set -e
-@if ($pushing_to_prod)
-    echo "## Refusing: dumps are never uploaded to production."
-    exit 1
-@else
     if [ ! -f {{ $local['dumps'] }}/{{ $dump_latest }} ]; then
         echo "## No dump at {{ $local['dumps'] }}/{{ $dump_latest }}"
         echo "##   run 'envoy run db-pull' first, or 'envoy run db-dump-local'"
         exit 1
     fi
-    echo "## Uploading {{ $dump_latest }} to {{ $push_env['name'] }}"
-    ssh {{ $ssh_flag($push_env) }} {{ $push_env['ssh'] }} "mkdir -p {{ $push_env['dumps'] }}"
-    scp {{ $scp_flag($push_env) }} {{ $local['dumps'] }}/{{ $dump_latest }} {{ $push_env['ssh'] }}:{{ $push_env['dumps'] }}/{{ $dump_latest }}
-@endif
+    echo "## Uploading {{ $dump_latest }} to the remote"
+    ssh {{ $ssh_flag }} {{ $remote['ssh'] }} "mkdir -p {{ $remote['dumps'] }}"
+    scp {{ $scp_flag }} {{ $local['dumps'] }}/{{ $dump_latest }} {{ $remote['ssh'] }}:{{ $remote['dumps'] }}/{{ $dump_latest }}
 @endtask
 
-@task('db-import-local', ['on' => 'local', 'confirm' => $confirm()])
+@task('db-import', ['on' => 'local', 'confirm' => $confirm()])
     set -e
     cd {{ $local['path'] }}
-    echo "## Rebuilding local schema from migrations on {{ $pull_env['branch'] }}"
-    git checkout {{ $pull_env['branch'] }} --quiet
+    echo "## Rebuilding local schema from migrations on {{ $remote['branch'] }}"
+    git checkout {{ $remote['branch'] }} --quiet
     php artisan migrate:fresh --drop-views --force --quiet
     echo "## Importing {{ $dump_latest }}"
     MYSQL_PWD='{{ $local['db']['password'] }}' mysql \
@@ -574,55 +509,45 @@
 @endtask
 
 {{--
-| The one guard that matters. Every path that ends in a remote import —
-| db-import --prod and db-push --prod — comes through here, and
-| Blade renders it as a refusal rather than a prompt when the target is prod.
+| Drops and rebuilds the remote database, then imports the dump--latest.sql
+| already sitting there — the one the last db-push uploaded. It uploads
+| nothing itself, and it always confirms.
 --}}
 
-@task('db-import-remote', ['on' => 'push', 'confirm' => $confirm()])
-@if ($pushing_to_prod)
-    echo "## Refusing: imports never run on production."
-    exit 1
-@else
+@task('db-import-remote', ['on' => 'remote', 'confirm' => $confirm()])
     set -e
-    cd {{ $push_env['path'] }}
-    if [ ! -f {{ $push_env['dumps'] }}/{{ $dump_latest }} ]; then
-        echo "## No dump at {{ $push_env['name'] }}:{{ $push_env['dumps'] }}/{{ $dump_latest }}"
+    cd {{ $remote['path'] }}
+    if [ ! -f {{ $remote['dumps'] }}/{{ $dump_latest }} ]; then
+        echo "## No dump at {{ $remote['dumps'] }}/{{ $dump_latest }}"
         echo "##   run 'envoy run db-push' to send one, or 'envoy run db-upload' on its own"
         exit 1
     fi
-    echo "## Rebuilding {{ $push_env['name'] }} schema and importing {{ $dump_latest }}"
-    {{ $push_env['php'] }} artisan migrate:fresh --drop-views --force --quiet
-    MYSQL_PWD='{{ $push_env['db']['password'] }}' mysql \
-        --host={{ $push_env['db']['host'] }} --port={{ $push_env['db']['port'] }} \
-        --user={{ $push_env['db']['username'] }} \
-        {{ $push_env['db']['database'] }} < {{ $push_env['dumps'] }}/{{ $dump_latest }}
-    {{ $push_env['php'] }} artisan migrate --force --quiet
-    {{ $push_env['php'] }} artisan optimize:clear --quiet
-@endif
+    echo "## Rebuilding the remote schema and importing {{ $dump_latest }}"
+    {{ $remote['php'] }} artisan migrate:fresh --drop-views --force --quiet
+    MYSQL_PWD='{{ $remote['db']['password'] }}' mysql \
+        --host={{ $remote['db']['host'] }} --port={{ $remote['db']['port'] }} \
+        --user={{ $remote['db']['username'] }} \
+        {{ $remote['db']['database'] }} < {{ $remote['dumps'] }}/{{ $dump_latest }}
+    {{ $remote['php'] }} artisan migrate --force --quiet
+    {{ $remote['php'] }} artisan optimize:clear --quiet
 @endtask
 
 {{-- SQLite projects transfer the file itself instead of dumping. --}}
 
 @task('db-pull-sqlite', ['on' => 'local'])
     set -e
-    echo "## Downloading {{ $pull_env['name'] }} sqlite database"
-    rsync {{ $rsync_opts($pull_env) }} --backup --suffix=.bak \
-        {{ $pull_env['ssh'] }}:{{ $pull_env['db']['sqlite'] ?: $pull_env['path'] . '/database/database.sqlite' }} \
+    echo "## Downloading the remote sqlite database"
+    rsync {{ $rsync_opts }} --backup --suffix=.bak \
+        {{ $remote['ssh'] }}:{{ $remote['db']['sqlite'] ?: $remote['path'] . '/database/database.sqlite' }} \
         {{ $local['db']['sqlite'] }}
 @endtask
 
 @task('db-push-sqlite', ['on' => 'local', 'confirm' => $confirm()])
     set -e
-@if ($pushing_to_prod)
-    echo "## Refusing: databases are never pushed to production."
-    exit 1
-@else
-    echo "## Uploading local sqlite database to {{ $push_env['name'] }}"
-    rsync {{ $rsync_opts($push_env) }} --backup --suffix=.bak \
+    echo "## Uploading local sqlite database to the remote"
+    rsync {{ $rsync_opts }} --backup --suffix=.bak \
         {{ $local['db']['sqlite'] }} \
-        {{ $push_env['ssh'] }}:{{ $push_env['db']['sqlite'] ?: $push_env['path'] . '/database/database.sqlite' }}
-@endif
+        {{ $remote['ssh'] }}:{{ $remote['db']['sqlite'] ?: $remote['path'] . '/database/database.sqlite' }}
 @endtask
 
 {{--
@@ -637,10 +562,10 @@
     echo "## Nothing is declared to pull — see ENVOY_STORAGE_SYNC in .env, or pass --dir=<path>"
 @endif
 @foreach ($sync_pull_dirs as $e)
-    echo "## {{ $pull_env['name'] }}:{{ $e['path'] }} -> local"
+    echo "## remote:{{ $e['path'] }} -> local"
     mkdir -p {{ $local['path'] }}/{{ $e['path'] }}
-    rsync {{ $rsync_opts($pull_env) }} {{ $e['opts'] }} \
-        {{ $pull_env['ssh'] }}:{{ $pull_env['path'] }}/{{ $e['path'] }}/ \
+    rsync {{ $rsync_opts }} {{ $e['opts'] }} \
+        {{ $remote['ssh'] }}:{{ $remote['path'] }}/{{ $e['path'] }}/ \
         {{ $local['path'] }}/{{ $e['path'] }}/
 @endforeach
 @endtask
@@ -651,28 +576,11 @@
     echo "## Nothing is declared to push — see ENVOY_STORAGE_SYNC in .env, or pass --dir=<path>"
 @endif
 @foreach ($sync_push_dirs as $e)
-    echo "## local:{{ $e['path'] }} -> {{ $push_env['name'] }}"
-    ssh {{ $ssh_flag($push_env) }} {{ $push_env['ssh'] }} "mkdir -p {{ $push_env['path'] }}/{{ $e['path'] }}"
-    rsync {{ $rsync_opts($push_env) }} {{ $e['opts'] }} \
+    echo "## local:{{ $e['path'] }} -> remote"
+    ssh {{ $ssh_flag }} {{ $remote['ssh'] }} "mkdir -p {{ $remote['path'] }}/{{ $e['path'] }}"
+    rsync {{ $rsync_opts }} {{ $e['opts'] }} \
         {{ $local['path'] }}/{{ $e['path'] }}/ \
-        {{ $push_env['ssh'] }}:{{ $push_env['path'] }}/{{ $e['path'] }}/
-@endforeach
-@endtask
-
-{{--
-| storage-sync moves files in both declared directions, but only ever against
-| one server — the push target, so it can no more write to production without
-| --prod than storage-push can.
---}}
-
-@task('storage-sync-pull', ['on' => 'local'])
-    set -e
-@foreach ($sync_pull_dirs as $e)
-    echo "## {{ $push_env['name'] }}:{{ $e['path'] }} -> local"
-    mkdir -p {{ $local['path'] }}/{{ $e['path'] }}
-    rsync {{ $rsync_opts($push_env) }} {{ $e['opts'] }} \
-        {{ $push_env['ssh'] }}:{{ $push_env['path'] }}/{{ $e['path'] }}/ \
-        {{ $local['path'] }}/{{ $e['path'] }}/
+        {{ $remote['ssh'] }}:{{ $remote['path'] }}/{{ $e['path'] }}/
 @endforeach
 @endtask
 
@@ -722,51 +630,12 @@
 @endstory
 
 {{--
-| One Envoy run resolves one server, so pushing the same code to both means
-| running this file again for each. The confirmation is asked once, here, and
-| --noconfirm keeps the nested runs from asking a second time.
-|
-| The two merges level the branches first — main into dev, then dev into main —
-| so both servers end up on the same code. A conflict stops the run on the
-| branch it happened on; resolve it and run code-sync again.
---}}
-
-@task('code-sync', ['on' => 'local', 'confirm' => $confirm()])
-    set -e
-@if (count($environments) < 2)
-    echo "## Refusing: code-sync needs both remotes, and only {{ implode(', ', array_keys($environments)) }} is configured."
-    exit 1
-@else
-    ENVOY=vendor/bin/envoy
-    [ -x "$ENVOY" ] || ENVOY="$(command -v envoy)" || { echo "## Cannot find envoy"; exit 1; }
-    cd {{ $local['path'] }}
-    echo "## Merging {{ $environments['prod']['branch'] }} into {{ $environments['dev']['branch'] }}"
-    git checkout {{ $environments['dev']['branch'] }} --quiet
-    git merge {{ $environments['prod']['branch'] }} --no-edit --quiet
-    echo "## Merging {{ $environments['dev']['branch'] }} into {{ $environments['prod']['branch'] }}"
-    git checkout {{ $environments['prod']['branch'] }} --quiet
-    git merge {{ $environments['dev']['branch'] }} --no-edit --quiet
-    echo "## branch {{ $environments['prod']['branch'] }} -> prod server"
-    "$ENVOY" run code-push --prod --noconfirm {{ isset($force) ? '--force' : '' }} {{ isset($nobuild) ? '--nobuild' : '' }}
-    echo "## branch {{ $environments['dev']['branch'] }} -> dev server"
-    git checkout {{ $environments['dev']['branch'] }} --quiet
-    "$ENVOY" run code-push --dev --noconfirm {{ isset($force) ? '--force' : '' }} {{ isset($nobuild) ? '--nobuild' : '' }}
-    echo "## Done — you are back on {{ $environments['dev']['branch'] }}"
-@endif
-@endtask
-
-{{--
-| Aliases for the two commands typed the most. A story is only a list of
-| names, so these carry every flag straight through: push --prod --force is
-| code-push --prod --force.
+| An alias for the command typed the most. A story is only a list of names,
+| so it carries every flag straight through: push --force is code-push --force.
 --}}
 
 @story('push')
     code-push
-@endstory
-
-@story('sync')
-    code-sync
 @endstory
 
 {{--
@@ -781,7 +650,7 @@
 @else
     db-dump
     db-download
-    db-import-local
+    db-import
 @endif
 @endstory
 
@@ -796,20 +665,6 @@
 @endstory
 
 {{--
-| Local unless you name a remote; production is refused either way. Nothing
-| is uploaded: it imports the dump--latest.sql already sitting on the target,
-| the one the last db-push put there.
---}}
-
-@story('db-import')
-@if ($import_remote)
-    db-import-remote
-@else
-    db-import-local
-@endif
-@endstory
-
-{{--
 |--------------------------------------------------------------------------
 | Storage stories
 |--------------------------------------------------------------------------
@@ -820,7 +675,7 @@
     storage-nothing-declared
 @endif
 @if ($sync_pull_dirs)
-    storage-sync-pull
+    storage-pull
 @endif
 @if ($sync_push_dirs)
     storage-push
