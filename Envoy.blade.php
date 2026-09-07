@@ -185,7 +185,6 @@
     $rsync_ssh = fn (array $e) => $e['port'] !== 22 ? "-e 'ssh -p {$e['port']}'" : '';
 
     $rsync_opts = fn (array $e) => trim('-az --human-readable ' . $rsync_ssh($e)
-        . (isset($progress) ? ' --info=progress2' : '')
         . (isset($dry) ? ' --dry-run --itemize-changes' : ''));
 
     /*

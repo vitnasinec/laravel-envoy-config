@@ -185,7 +185,6 @@ prod, and a project with only `PROD_SSH_HOST` set uses production for both.
 | `--dir=path` | transfer this project-relative path, ignoring `ENVOY_STORAGE_SYNC` |
 | `--delete` | force mirroring on for one run, everywhere |
 | `--dry` | rsync dry run with `--itemize-changes` |
-| `--progress` | rsync `--info=progress2` |
 | `--build` / `--nobuild` | force or skip `npm-build` in `code-push` / `deploy` |
 
 `--noconfirm` also exists, but it is internal: `code-sync` uses it to stop the
