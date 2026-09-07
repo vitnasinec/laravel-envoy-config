@@ -34,7 +34,7 @@ project's `.env`, and add the dump directory to `.gitignore`:
 ## Config
 
 Everything is in the one block at the top of `Envoy.blade.php`, between the
-`Config` banner and `End of config`. Two typed objects, two lists, two flags:
+`Config` banner and `End of config`. Two typed objects, two lists, one flag:
 
 ```php
 $remote = new EnvoyEnvironment(
@@ -52,7 +52,6 @@ $remote = new EnvoyEnvironment(
         database: 'example_db',
         username: $env('PROD_DB_USERNAME'),  // .env
         password: $env('PROD_DB_PASSWORD'),  // .env
-        sqlite: '~/code/stage1/database/database.sqlite',
     ),
 );
 ```
@@ -61,10 +60,27 @@ $remote = new EnvoyEnvironment(
 where the file sits and which branch you are on; edit its database, and leave
 the rest alone.
 
+`database` says which kind of project this is, so there is no separate switch
+for it. A plain name is MySQL. A path ending in `.sqlite` is SQLite — `db-pull`
+and `db-push` transfer that file instead of dumping, and `host`, `port`,
+`username` and `password` go unused:
+
+```php
+db: new EnvoyDatabase(
+    host: null,
+    port: null,
+    database: '~/code/stage1/database/database.sqlite',
+    username: null,
+    password: null,
+),
+```
+
+Both ends have to be the same kind — two names, or two `.sqlite` paths. A
+mismatch is a typo, not a transfer, and the file refuses to run.
+
 | Setting | |
 |---|---|
 | `$sync_pull_dirs` `$sync_push_dirs` | which directories move, and which way — see [below](#which-way-does-the-data-go) |
-| `$sqlite` | `true` transfers the `.sqlite` file itself instead of dumping |
 | `$build_assets` | whether `deploy` and `code-push` build on the server; `false` for projects with no front-end build, or that commit built assets. `--build` / `--nobuild` override it for one run |
 | `$ignore_tables` | tables whose data is never carried between environments — migrations, cache, sessions, queues, telescope, pulse |
 
@@ -99,8 +115,9 @@ Everything that changes the remote confirms first — `db-import-remote`,
 `migrate:fresh` against the remote database, so it is the one to read twice
 before answering. `db-upload` only drops a file in the dump dir, so it doesn't ask.
 
-SQLite projects transfer the file itself: set `$sqlite = true` and `db-pull` /
-`db-push` rsync the `.sqlite` file instead of dumping.
+SQLite projects transfer the file itself. Point both `database` fields at the
+`.sqlite` paths and `db-pull` / `db-push` rsync the file instead of dumping,
+keeping a `.bak` at the destination. Nothing else changes.
 
 ### Storage
 
@@ -191,9 +208,12 @@ decide once, in the file, where the next person can read it.
   not `$remote['db']['password']`. Every one of those values is spliced into a
   shell command, and a mistyped array key would have arrived there as an empty
   string; a mistyped property is a fatal error before anything runs. They are
-  plain data holders with no methods, because Envoy pre-declares every variable
-  it finds in the file and a method body referring to the object itself would be
-  compiled into a re-assignment of it. Needs PHP 8.1 for `readonly`.
+  plain data holders with **no methods**: Envoy's compiler regex-scans the whole
+  file for `$name` and prepends `$name = isset($name) ? $name : null;` for each
+  one it finds, so a method body mentioning `$this` compiles into `$this = …`
+  and dies on `Cannot re-assign $this`. Anything derived — whether a database is
+  SQLite, which `--ignore-table` flags a dump needs — is a closure taking the
+  object, below the config block. Needs PHP 8.1 for `readonly`.
 - Per-project quirks (a `permission_name` virtual-column dance, a `DevSeeder`,
   extra ignore tables) stay in that project's file as an extra task appended
   below the template — the shared part stays shared.

@@ -53,21 +53,25 @@
     | rsync with no source, a mysql with no database. The same typo against a
     | typed property is a fatal error, before any of it runs.
     |
-    | Data only, no methods: Envoy pre-declares every variable it finds in this
-    | file, so a method body referring to the object itself would be compiled
-    | into a re-assignment of it and refuse to parse. Anything that needs
-    | working out is worked out before the object is built.
+    | Data only, no methods: before anything else, Envoy scans the raw file for
+    | every name that looks like a variable and prepends an "or null" assignment
+    | for each one. A method body referring to the object itself is caught by
+    | that scan and compiled into a re-assignment of the one variable PHP will
+    | not let you re-assign — a parse error, before a single task runs. The scan
+    | reads comments too, so this paragraph cannot spell the name either.
+    |
+    | Anything that needs working out is worked out below, in the mechanics, as
+    | a closure taking the object.
     */
 
     final class EnvoyDatabase
     {
         public function __construct(
-            public readonly string $host,
-            public readonly int $port,
+            public readonly ?string $host,
+            public readonly ?int $port,
             public readonly ?string $database,
             public readonly ?string $username,
             public readonly ?string $password,
-            public readonly string $sqlite,
         ) {
         }
     }
@@ -114,6 +118,12 @@
     | php       absolute paths for hosts that don't have them on PATH, e.g.
     | composer  php: '/opt/alt/php83/usr/bin/php'
     | npm       composer: 'php ~/code/bin/composer'
+    | db        the database there — and which kind of project this is. A plain
+    |           name is MySQL. A path ending in .sqlite makes it a SQLite
+    |           project: db-pull and db-push then transfer that file instead of
+    |           dumping, and host, port, username and password go unused.
+    |
+    |               database: '~/code/stage1/database/database.sqlite',
     */
 
     $remote = new EnvoyEnvironment(
@@ -131,13 +141,14 @@
             database: 'example_db',
             username: $env('PROD_DB_USERNAME'),
             password: $env('PROD_DB_PASSWORD'),
-            sqlite: '~/code/stage1/database/database.sqlite',
         ),
     );
 
     /*
     | Local. Nothing is ever ssh'd to here, so the ssh fields keep their
-    | defaults, and the branch is whichever one you are on right now.
+    | defaults, and the branch is whichever one you are on right now. Its
+    | database has to be the same kind as the remote's — two names, or two
+    | .sqlite paths — because there is no transfer between the two kinds.
     */
 
     $local = new EnvoyEnvironment(
@@ -150,7 +161,6 @@
             database: 'example_db',
             username: $env('DB_USERNAME'),
             password: $env('DB_PASSWORD'),
-            sqlite: __DIR__ . '/database/database.sqlite',
         ),
     );
 
@@ -174,14 +184,10 @@
     ];
 
     /*
-    | Behaviour.
-    |
-    | $sqlite        true transfers the .sqlite file itself instead of dumping
-    | $build_assets  whether deploy and code-push build on the server;
-    |                --build / --nobuild override it for one run
+    | Whether deploy and code-push build assets on the server. Set it false for
+    | a project with no front-end build, or one that commits built assets;
+    | --build / --nobuild override it for a single run.
     */
-
-    $sqlite = false;
 
     $build_assets = true;
 
@@ -208,6 +214,25 @@
     | End of config — mechanics below
     |==========================================================================
     */
+
+    /*
+    | SQLite is not a switch to set, it is read off the two database names: one
+    | ending in .sqlite is a path to a file rather than the name of a schema.
+    | Both ends have to be the same kind — there is no transfer between a MySQL
+    | remote and a SQLite local, so a mismatch is a typo, and says so.
+    */
+
+    $is_sqlite = fn (EnvoyDatabase $db) => str_ends_with((string) $db->database, '.sqlite');
+
+    if ($is_sqlite($remote->db) !== $is_sqlite($local->db)) {
+        throw new RuntimeException(
+            'Envoy: one database is a .sqlite path and the other is not. Both ends '
+            . 'must be the same kind — remote: ' . $remote->db->database
+            . ', local: ' . $local->db->database
+        );
+    }
+
+    $sqlite = $is_sqlite($local->db);
 
     if (! $sqlite && (! $remote->db->username || ! $local->db->username)) {
         throw new RuntimeException(
@@ -491,16 +516,16 @@
     set -e
     echo "## Downloading the remote sqlite database"
     rsync {{ $rsync_opts }} --backup --suffix=.bak \
-        {{ $remote->ssh }}:{{ $remote->db->sqlite }} \
-        {{ $local->db->sqlite }}
+        {{ $remote->ssh }}:{{ $remote->db->database }} \
+        {{ $local->db->database }}
 @endtask
 
 @task('db-push-sqlite', ['on' => 'local', 'confirm' => $confirm()])
     set -e
     echo "## Uploading local sqlite database to the remote"
     rsync {{ $rsync_opts }} --backup --suffix=.bak \
-        {{ $local->db->sqlite }} \
-        {{ $remote->ssh }}:{{ $remote->db->sqlite }}
+        {{ $local->db->database }} \
+        {{ $remote->ssh }}:{{ $remote->db->database }}
 @endtask
 
 {{--
