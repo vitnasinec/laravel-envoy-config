@@ -1,7 +1,9 @@
 # Shared Laravel Envoy template
 
-One `Envoy.blade.php` for every project. Nothing project-specific lives in the
-file — copy it in, add the `.env` keys from `.env.example`, done.
+One `Envoy.blade.php` for every project. Copy it in, edit the **Config block**
+at the top — the remote, the local database, which directories mirror — and
+that is the setup. The only thing it reads from `.env` is the database
+usernames and passwords, because this file is committed and those are not.
 
 ## Install
 
@@ -10,8 +12,8 @@ composer require --dev laravel/envoy
 curl -o Envoy.blade.php https://raw.githubusercontent.com/vitnasinec/laravel-envoy-config/main/Envoy.blade.php
 ```
 
-Then append the keys from `.env.example` to the project's `.env`, and add
-the dump directory to `.gitignore`:
+Then edit the Config block, append the two keys from `.env.example` to the
+project's `.env`, and add the dump directory to `.gitignore`:
 
 ```
 /storage/envoy
@@ -26,8 +28,48 @@ the dump directory to `.gitignore`:
 | Direction | **pull = remote → local**, **push = local → remote**, same as git |
 | Target | there is only one remote, so no command takes a target flag |
 | Writes to the remote | always confirm first; `--noconfirm` answers in advance |
-| Source of truth | the directories are declared per project in `ENVOY_STORAGE_SYNC`, never remembered |
-| Env keys | `PROD_<THING>`, e.g. `PROD_DB_PASSWORD` (not `DB_PROD_PASSWORD`) |
+| Configuration | hard-coded in the Config block, one place, no indirection |
+| Secrets | the database usernames and passwords, from `.env`, and nothing else |
+
+## Config
+
+Everything is in the one block at the top of `Envoy.blade.php`, between the
+`Config` banner and `End of config`. Two typed objects, two lists, two flags:
+
+```php
+$remote = new EnvoyEnvironment(
+    ssh: 'exampleuser@example.pef.czu.cz',   // or the bare host, if ~/.ssh/config knows the user
+    port: 22,
+    path: '~/code/stage1',                   // project root on the server
+    dumps: '~/code/temp',                    // where dumps are written there
+    branch: 'main',                          // the branch the server runs
+    php: 'php',                              // absolute paths for hosts that lack them on PATH,
+    composer: 'composer',                    //   e.g. '/opt/alt/php83/usr/bin/php'
+    npm: 'npm',                              //   or  'php ~/code/bin/composer'
+    db: new EnvoyDatabase(
+        host: '127.0.0.1',
+        port: 3306,
+        database: 'example_db',
+        username: $env('PROD_DB_USERNAME'),  // .env
+        password: $env('PROD_DB_PASSWORD'),  // .env
+        sqlite: '~/code/stage1/database/database.sqlite',
+    ),
+);
+```
+
+`$local` is the same object with `path`, `dumps` and `branch` worked out from
+where the file sits and which branch you are on; edit its database, and leave
+the rest alone.
+
+| Setting | |
+|---|---|
+| `$sync_pull_dirs` `$sync_push_dirs` | which directories move, and which way — see [below](#which-way-does-the-data-go) |
+| `$sqlite` | `true` transfers the `.sqlite` file itself instead of dumping |
+| `$build_assets` | whether `deploy` and `code-push` build on the server; `false` for projects with no front-end build, or that commit built assets. `--build` / `--nobuild` override it for one run |
+| `$ignore_tables` | tables whose data is never carried between environments — migrations, cache, sessions, queues, telescope, pulse |
+
+`branch` matters more than it looks: `db-import` checks that branch out locally
+to build the right schema before importing, then puts you back.
 
 ## Commands
 
@@ -57,15 +99,15 @@ Everything that changes the remote confirms first — `db-import-remote`,
 `migrate:fresh` against the remote database, so it is the one to read twice
 before answering. `db-upload` only drops a file in the dump dir, so it doesn't ask.
 
-SQLite projects transfer the file itself; `db-pull` / `db-push` detect
-`DB_CONNECTION=sqlite` and rsync the `.sqlite` file instead of dumping.
+SQLite projects transfer the file itself: set `$sqlite = true` and `db-pull` /
+`db-push` rsync the `.sqlite` file instead of dumping.
 
 ### Storage
 
 | Command | Does |
 |---|---|
-| `storage-pull` | rsyncs every directory declared by a `storage-pull` entry, remote → local. |
-| `storage-push` | rsyncs every directory declared by a `storage-push` entry, local → remote. Always confirms. |
+| `storage-pull` | rsyncs every directory in `$sync_pull_dirs`, remote → local. |
+| `storage-push` | rsyncs every directory in `$sync_push_dirs`, local → remote. Always confirms. |
 | `storage-push --dir=path` | Ad-hoc: transfers exactly that project-relative path, declared or not. One path per run. Works on `storage-pull` too. |
 | `storage-sync` | Both declared directions in one run. |
 
@@ -88,88 +130,46 @@ Each is runnable on its own: `git-push` `git-repush` `git-pull` `git-reset`
 
 Different per project, and permanently so — on some, users edit the server and
 you mirror it down; on others you author locally and publish upward; on plenty
-it's a mix. That belongs in config, not in your head. Declare it once:
+it's a mix. That belongs in the file, not in your head. Write it down once:
 
-```dotenv
-ENVOY_STORAGE_SYNC="storage-push --dir=storage/app, storage-pull --dir=storage/media"
+```php
+$sync_pull_dirs = [
+    new EnvoySyncDir('storage/media'),
+];
+
+$sync_push_dirs = [
+    new EnvoySyncDir('storage/app', delete: true),
+];
 ```
 
-There is no second syntax to learn: an entry is the command you would have
-typed, with the flags you would have typed. Entries are comma separated, each
-one a `storage-pull` or `storage-push` naming the one directory it moves with
-`--dir=`, project-relative. One directory per entry; repeat the command for a
-second one. **Anything not listed is never touched in either direction.**
-
-Every storage command reads the result: `storage-pull` pulls what the pull
-entries name, `storage-push` pushes what the push entries name, and
-`storage-sync` does both in one run.
+Every storage command reads those two lists: `storage-pull` pulls what the
+first names, `storage-push` pushes what the second names, and `storage-sync`
+does both in one run. Paths are project-relative, one directory per entry.
+**Anything not listed is never touched in either direction.**
 
 Nothing is assumed anywhere: there is no built-in directory behind any of it,
-so with nothing declared `storage-pull` / `storage-push` move nothing until you
+so with both lists empty `storage-pull` / `storage-push` move nothing until you
 pass `--dir`. Files move where you said so and nowhere else.
 
-The database has no such key — `db-pull` and `db-push` say the direction in
+The database has no such list — `db-pull` and `db-push` say the direction in
 their own name, so run the one you mean.
 
-### Per-entry flags
+### `delete:`
 
-`--delete` works on an entry exactly as it does on the command line, and
-applies to that entry alone:
-
-```dotenv
-ENVOY_STORAGE_SYNC="storage-push --dir=storage/app --delete, storage-pull --dir=storage/media"
-```
-
-| Flag | |
-|---|---|
-| `--dir=<path>` | the directory the entry moves; required on `storage-*` |
-| `--delete` | mirror deletions at the destination |
-
-`--delete` is **off by default in both directions** — it deletes files at the
-far end that were never here, which is rarely what you meant. Put it on the one
-entry that needs it, as above, where `storage/app` is authored locally and the
-server should mirror it exactly. `envoy run storage-push --delete` turns it on
-for one run everywhere; nothing turns it back off, because off is where it
-starts.
-
-Bad declarations are rejected rather than silently ignored: an entry that is
-not a `storage-pull` / `storage-push`, an unknown flag, a misspelling, an entry
-naming no directory, and a `--dir` carrying more than one path.
-
-## Env keys
-
-`.env.example` is the template to append; this is what the keys mean. The
-remote's keys are all `PROD_<THING>`, and `PROD_SSH_HOST` is the one that must
-be set — without it the file refuses to run. The local environment reuses
-Laravel's own `DB_*` keys, so there is nothing to add for it.
-
-### The remote
-
-| Key | |
-|---|---|
-| `PROD_SSH_HOST` `_SSH_USER` `_SSH_PORT` | how to reach the server; `PROD_SSH_HOST` is required |
-| `PROD_PATH` | project root on the server |
-| `PROD_DUMP_PATH` | where dumps are written there; defaults to `PROD_PATH/storage/envoy` |
-| `PROD_BRANCH` | the branch the server runs, `main` by default — `db-import` borrows it to build the right schema |
-| `PROD_PHP` `_COMPOSER` `_NPM` | absolute paths for hosts that don't have them on `PATH`, e.g. `PROD_PHP=/opt/alt/php83/usr/bin/php` or `PROD_COMPOSER="php ~/code/bin/composer"` |
-| `PROD_DB_HOST` `_DB_PORT` `_DB_DATABASE` `_DB_USERNAME` `_DB_PASSWORD` | the server's database |
-| `PROD_DB_SQLITE_PATH` | SQLite projects only, and only when the file is not at `database/database.sqlite` |
-
-### Behaviour
-
-| Key | |
-|---|---|
-| `ENVOY_DUMP_PATH` | where dumps are kept locally — `./storage/envoy`, which belongs in `.gitignore` |
-| `ENVOY_BUILD_ASSETS` | whether `deploy` and `code-push` build on the server. Leave it empty to auto-detect (true when `package.json` has a `build` script); set `false` for projects with no front-end build, or that commit built assets. `--build` / `--nobuild` override it for one run. |
-| `ENVOY_STORAGE_SYNC` | which directories move, and which way — see [above](#which-way-does-the-data-go) |
-| `ENVOY_DB_IGNORE_TABLES` | tables whose data is never carried between environments — migrations, cache, sessions, queues, telescope, pulse |
+`delete: true` makes rsync mirror deletions at the destination, and applies to
+that entry alone. It is **off by default in both directions** — it deletes
+files at the far end that were never here, which is rarely what you meant. Put
+it on the one entry that needs it, as above, where `storage/app` is authored
+locally and the server should mirror it exactly. `envoy run storage-push
+--delete` turns it on for one run everywhere; nothing turns it back off,
+because off is where it starts.
 
 ## Flags
 
 | Flag | Effect |
 |---|---|
 | `--force` | on `code-push` / `deploy`: amend + force-push, hard-reset the remote |
-| `--dir=path` | transfer this project-relative path, ignoring `ENVOY_STORAGE_SYNC` |
+| `--dir=path` | transfer this project-relative path, ignoring the declared lists |
 | `--delete` | force mirroring on for one run, everywhere |
 | `--dry` | rsync dry run with `--itemize-changes` |
 | `--build` / `--nobuild` | force or skip `npm-build` in `code-push` / `deploy` |
@@ -185,7 +185,9 @@ Laravel's own `DB_*` keys, so there is nothing to add for it.
   remote's branch first, imports, then switches back to your branch and applies
   newer migrations — so the schema comes from the migrations, never from a dump.
 - Passwords go through `MYSQL_PWD`, not `--password=…`, so they don't show up
-  in `ps` on a shared host.
+  in `ps` on a shared host. They are the only thing left in `.env`; if the
+  usernames are missing on a MySQL project the file refuses to run, rather than
+  handing `mysql` an empty `--user=`.
 - `set -e` in every task, so a failed `git pull` cannot leave `migrate` and
   `artisan up` running behind it.
 - The two environments are typed objects, not nested arrays — `$remote->db->password`,

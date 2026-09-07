@@ -3,19 +3,18 @@
 | Shared Laravel Envoy template
 |--------------------------------------------------------------------------
 |
-| Drop this file in the project root as Envoy.blade.php, copy the matching
-| keys from envoy.env.example into the project's .env, and it should work
-| without editing anything in here.
+| Drop this file in the project root as Envoy.blade.php and edit the Config
+| block below — that block is the whole configuration. Nothing else in here
+| needs touching, and nothing outside it needs setting up.
+|
+| The one exception is the database usernames and passwords: those are read
+| from the project's .env, because this file is committed and they are not.
 |
 | Environments   local and one remote — that is the whole map
 | Direction      push = local -> remote,  pull = remote -> local
 |
 | There is no server to choose, so no command takes a target flag. Everything
 | that writes to the remote asks first; --noconfirm answers for scripts.
-|
-| The directories this project mirrors are declared once in ENVOY_STORAGE_SYNC:
-|
-|   ENVOY_STORAGE_SYNC="storage-push --dir=storage/app, storage-pull --dir=storage/media"
 |
 | Common commands
 |   envoy run code-push            fast deploy  (alias: push)
@@ -31,28 +30,19 @@
 @setup
     /*
     |--------------------------------------------------------------------------
-    | Config
+    | Credentials — the only thing read from .env
     |--------------------------------------------------------------------------
+    | Two keys for the remote database. The local database reuses Laravel's own
+    | DB_USERNAME / DB_PASSWORD, so there is nothing to add for it.
     */
 
     Dotenv\Dotenv::createImmutable(__DIR__)->safeLoad();
 
-    $cfg = function (string $key, $default = null) {
+    $env = function (string $key) {
         $value = $_ENV[$key] ?? $_SERVER[$key] ?? getenv($key);
 
-        if ($value === false || $value === null || $value === '') {
-            return $default;
-        }
-
-        return match (strtolower((string) $value)) {
-            'true', '(true)' => true,
-            'false', '(false)' => false,
-            'null', '(null)' => null,
-            default => $value,
-        };
+        return $value === false || $value === null || $value === '' ? null : (string) $value;
     };
-
-    $csv = fn (?string $value) => array_values(array_filter(array_map('trim', explode(',', (string) $value))));
 
     /*
     |--------------------------------------------------------------------------
@@ -98,64 +88,136 @@
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | The remote
-    |--------------------------------------------------------------------------
-    | One server, on the PROD_ keys. PROD_SSH_HOST is what makes the rest of
-    | this file mean anything, so its absence is an error, not a default.
-    */
+    /* One directory, and whether the far end mirrors deletions. */
 
-    if (! $cfg('PROD_SSH_HOST')) {
-        throw new RuntimeException(
-            'Envoy: no remote is configured. Set PROD_SSH_HOST in .env — see envoy.env.example.'
-        );
+    final class EnvoySyncDir
+    {
+        public function __construct(
+            public readonly string $path,
+            public readonly bool $delete = false,
+        ) {
+        }
     }
 
-    $remote_host = $cfg('PROD_SSH_HOST');
-    $remote_user = $cfg('PROD_SSH_USER');
-    $remote_path = rtrim($cfg('PROD_PATH', '~/' . basename(__DIR__)), '/');
+    /*
+    |==========================================================================
+    | Config — everything you edit is in this block
+    |==========================================================================
+    |
+    | The remote
+    |
+    | ssh       user@host, or the bare host when ~/.ssh/config knows the user
+    | path      project root on the server
+    | dumps     where dumps are written there
+    | branch    the branch the server runs — db-import borrows it to build the
+    |           right schema before importing
+    | php       absolute paths for hosts that don't have them on PATH, e.g.
+    | composer  php: '/opt/alt/php83/usr/bin/php'
+    | npm       composer: 'php ~/code/bin/composer'
+    */
 
     $remote = new EnvoyEnvironment(
-        path: $remote_path,
-        dumps: rtrim($cfg('PROD_DUMP_PATH', $remote_path . '/storage/envoy'), '/'),
-        branch: $cfg('PROD_BRANCH', 'main'),
+        ssh: 'exampleuser@example.pef.czu.cz',
+        port: 22,
+        path: '~/code/stage1',
+        dumps: '~/code/temp',
+        branch: 'main',
+        php: 'php',
+        composer: 'composer',
+        npm: 'npm',
         db: new EnvoyDatabase(
-            host: $cfg('PROD_DB_HOST', '127.0.0.1'),
-            port: (int) $cfg('PROD_DB_PORT', 3306),
-            database: $cfg('PROD_DB_DATABASE'),
-            username: $cfg('PROD_DB_USERNAME'),
-            password: $cfg('PROD_DB_PASSWORD'),
-            sqlite: $cfg('PROD_DB_SQLITE_PATH') ?: $remote_path . '/database/database.sqlite',
+            host: '127.0.0.1',
+            port: 3306,
+            database: 'example_db',
+            username: $env('PROD_DB_USERNAME'),
+            password: $env('PROD_DB_PASSWORD'),
+            sqlite: '~/code/stage1/database/database.sqlite',
         ),
-        // user@host, or the bare host when ~/.ssh/config already knows the user.
-        ssh: $remote_user ? $remote_user . '@' . $remote_host : $remote_host,
-        port: (int) $cfg('PROD_SSH_PORT', 22),
-        php: $cfg('PROD_PHP', 'php'),
-        composer: $cfg('PROD_COMPOSER', 'composer'),
-        npm: $cfg('PROD_NPM', 'npm'),
     );
 
     /*
-    |--------------------------------------------------------------------------
-    | Local environment — reuses Laravel's own DB_* keys
-    |--------------------------------------------------------------------------
-    | Nothing is ever ssh'd to here, so the ssh fields keep their defaults.
+    | Local. Nothing is ever ssh'd to here, so the ssh fields keep their
+    | defaults, and the branch is whichever one you are on right now.
     */
 
     $local = new EnvoyEnvironment(
         path: __DIR__,
-        dumps: rtrim($cfg('ENVOY_DUMP_PATH', __DIR__ . '/storage/envoy'), '/'),
+        dumps: __DIR__ . '/storage/envoy',
         branch: trim((string) shell_exec('git branch --show-current 2>/dev/null')),
         db: new EnvoyDatabase(
-            host: $cfg('DB_HOST', '127.0.0.1'),
-            port: (int) $cfg('DB_PORT', 3306),
-            database: $cfg('DB_DATABASE'),
-            username: $cfg('DB_USERNAME'),
-            password: $cfg('DB_PASSWORD'),
-            sqlite: $cfg('DB_SQLITE_PATH') ?: __DIR__ . '/database/database.sqlite',
+            host: '127.0.0.1',
+            port: 3306,
+            database: 'example_db',
+            username: $env('DB_USERNAME'),
+            password: $env('DB_PASSWORD'),
+            sqlite: __DIR__ . '/database/database.sqlite',
         ),
     );
+
+    /*
+    | Which directories move, and which way. Which files a project mirrors is
+    | permanent per project, so it is written down here rather than remembered
+    | at the keyboard: paths are project-relative, and anything not listed is
+    | never touched in either direction. With both lists empty, storage-pull
+    | and storage-push move nothing until you pass --dir.
+    |
+    | delete: true makes the destination an exact mirror, which deletes files
+    | at the far end that were never here. Off unless asked for.
+    */
+
+    $sync_pull_dirs = [
+        new EnvoySyncDir('storage/app'),
+    ];
+
+    $sync_push_dirs = [
+        // new EnvoySyncDir('public/uploads', delete: true),
+    ];
+
+    /*
+    | Behaviour.
+    |
+    | $sqlite        true transfers the .sqlite file itself instead of dumping
+    | $build_assets  whether deploy and code-push build on the server;
+    |                --build / --nobuild override it for one run
+    */
+
+    $sqlite = false;
+
+    $build_assets = true;
+
+    /* Tables whose data is never carried between environments. */
+
+    $ignore_tables = [
+        'migrations',
+        'cache',
+        'cache_locks',
+        'sessions',
+        'jobs',
+        'job_batches',
+        'failed_jobs',
+        'telescope_entries',
+        'telescope_entries_tags',
+        'telescope_monitoring',
+        'pulse_aggregates',
+        'pulse_entries',
+        'pulse_values',
+    ];
+
+    /*
+    |==========================================================================
+    | End of config — mechanics below
+    |==========================================================================
+    */
+
+    if (! $sqlite && (! $remote->db->username || ! $local->db->username)) {
+        throw new RuntimeException(
+            'Envoy: database credentials come from .env. Set PROD_DB_USERNAME / '
+            . 'PROD_DB_PASSWORD for the remote, DB_USERNAME / DB_PASSWORD for local.'
+        );
+    }
+
+    if (isset($build))   $build_assets = true;
+    if (isset($nobuild)) $build_assets = false;
 
     /*
     | Everything that writes to the remote confirms first. --noconfirm answers
@@ -190,8 +252,6 @@
     |--------------------------------------------------------------------------
     */
 
-    $sqlite = strtolower((string) $cfg('DB_CONNECTION', 'mysql')) === 'sqlite';
-
     $dump_latest = 'dump--latest.sql';
     $dump_stamp  = 'dump--' . date('Ymd-His') . '.sql';
 
@@ -200,13 +260,6 @@
     $dump_flags = '--single-transaction --quick --skip-lock-tables --no-tablespaces '
         . '--default-character-set=utf8mb4 --skip-triggers --no-create-info';
 
-    $ignore_tables = $csv($cfg(
-        'ENVOY_DB_IGNORE_TABLES',
-        'migrations,cache,cache_locks,sessions,jobs,job_batches,failed_jobs,'
-        . 'telescope_entries,telescope_entries_tags,telescope_monitoring,'
-        . 'pulse_aggregates,pulse_entries,pulse_values'
-    ));
-
     $ignore = fn (?string $database) => implode(' ', array_map(
         fn ($table) => "--ignore-table={$database}.{$table}",
         $ignore_tables
@@ -214,159 +267,33 @@
 
     /*
     |--------------------------------------------------------------------------
-    | Assets
+    | Storage
     |--------------------------------------------------------------------------
-    | Not every project builds on the server — some have no front-end build at
-    | all, some ship compiled assets in the repo. Left unset, this detects a
-    | "build" script in package.json; set ENVOY_BUILD_ASSETS to decide
-    | explicitly, or override per run with --build / --nobuild.
+    | --dir=public/uploads is the ad-hoc escape hatch: it transfers exactly that
+    | project-relative directory, whether or not the lists above mention it, and
+    | ignores them entirely. One directory per run.
     */
 
-    $build_assets = $cfg('ENVOY_BUILD_ASSETS');
+    if (isset($dir)) {
+        $dir_path = trim(trim((string) $dir), '/');
 
-    if ($build_assets === null) {
-        $package = __DIR__ . '/package.json';
-
-        $build_assets = is_file($package)
-            && isset(json_decode((string) file_get_contents($package), true)['scripts']['build']);
-    }
-
-    $build_assets = (bool) $build_assets;
-
-    if (isset($build))   $build_assets = true;
-    if (isset($nobuild)) $build_assets = false;
-
-    /*
-    |--------------------------------------------------------------------------
-    | Which directories move, and which way
-    |--------------------------------------------------------------------------
-    | Which files a project mirrors differs per project, so declare it once in
-    | .env instead of remembering it at the keyboard. An entry is the command
-    | you would have typed, flags and all:
-    |
-    |   ENVOY_STORAGE_SYNC="storage-pull --dir=storage/media, storage-push --dir=public/uploads --delete"
-    |
-    | Entries are comma separated, each a storage-pull or storage-push naming
-    | the one directory it moves:
-    |
-    |   --dir=<path>  one project-relative directory, required
-    |   --delete      mirror deletions at the destination (off by default)
-    |
-    | Anything not listed is never touched. There is no built-in directory
-    | behind any of this either: with nothing declared, storage-pull and
-    | storage-push move nothing until you pass --dir. Files move where you
-    | said so and nowhere else.
-    */
-
-    $sync_pull_dirs = [];
-    $sync_push_dirs = [];
-
-    $sync_assign = function (array $entry, string $direction) use (&$sync_pull_dirs, &$sync_push_dirs) {
-        $drop = fn (array $list) => array_values(array_filter(
-            $list,
-            fn ($e) => $e['path'] !== $entry['path']
-        ));
-
-        $sync_pull_dirs = $drop($sync_pull_dirs);
-        $sync_push_dirs = $drop($sync_push_dirs);
-
-        if ($direction === 'pull') {
-            $sync_pull_dirs[] = $entry;
-        } else {
-            $sync_push_dirs[] = $entry;
-        }
-    };
-
-    // One directory per --dir, so a comma is always an entry separator and
-    // never part of a path.
-    $sync_path = function (string $path, string $context) {
-        $path = trim(trim($path), '/');
-
-        if ($path === '' || str_contains($path, '..') || str_contains($path, ',')) {
+        if ($dir_path === '' || str_contains($dir_path, '..') || str_contains($dir_path, ',')) {
             throw new RuntimeException(
-                "Envoy: {$context} needs one project-relative directory, "
+                "Envoy: --dir=[{$dir}] needs one project-relative directory, "
                 . 'e.g. --dir=storage/app/public.'
             );
         }
 
-        return $path;
-    };
-
-    foreach (preg_split('/[,\n]+/', (string) $cfg('ENVOY_STORAGE_SYNC', ''), -1, PREG_SPLIT_NO_EMPTY) as $entry) {
-        $entry = trim($entry);
-
-        if ($entry === '') {
-            continue;
-        }
-
-        $tokens  = preg_split('/\s+/', $entry, -1, PREG_SPLIT_NO_EMPTY);
-        $command = strtolower(array_shift($tokens));
-
-        if (! in_array($command, ['storage-pull', 'storage-push'], true)) {
-            throw new RuntimeException(
-                "Envoy: ENVOY_STORAGE_SYNC entry [{$entry}] must start with "
-                . 'storage-pull or storage-push, one entry per comma.'
-            );
-        }
-
-        $direction    = explode('-', $command, 2)[1];
-        $delete_entry = false;
-        $path_entry   = null;
-
-        foreach ($tokens as $flag) {
-            if ($flag === '--delete') {
-                $delete_entry = true;
-            } elseif (str_starts_with($flag, '--dir=')) {
-                $path_entry = $sync_path(substr($flag, strlen('--dir=')), "ENVOY_STORAGE_SYNC entry [{$entry}]");
-            } else {
-                throw new RuntimeException(
-                    "Envoy: ENVOY_STORAGE_SYNC entry [{$entry}] has unknown flag [{$flag}]. "
-                    . 'Allowed: --dir=<path>, --delete.'
-                );
-            }
-        }
-
-        if ($path_entry === null) {
-            throw new RuntimeException(
-                "Envoy: ENVOY_STORAGE_SYNC entry [{$entry}] names no directory. "
-                . 'Add --dir=<path>, e.g. storage-pull --dir=storage/app/public.'
-            );
-        }
-
-        $sync_assign(['path' => $path_entry, 'delete' => $delete_entry], $direction);
+        $sync_pull_dirs = [new EnvoySyncDir($dir_path)];
+        $sync_push_dirs = $sync_pull_dirs;
     }
 
-    /*
-    | --dir=public/uploads is the ad-hoc escape hatch: it transfers exactly
-    | that project-relative directory, whether or not ENVOY_STORAGE_SYNC
-    | mentions it, and ignores the declaration entirely.
-    */
-
-    if (isset($dir)) {
-        $ad_hoc = [[
-            'path'   => $sync_path((string) $dir, "--dir=[{$dir}]"),
-            'delete' => false,
-        ]];
-
-        $sync_pull_dirs = $ad_hoc;
-        $sync_push_dirs = $ad_hoc;
-    }
-
-    /*
-    | rsync --delete makes the destination an exact mirror, which deletes files
-    | at the far end that were never here. Off everywhere unless asked for:
-    | --delete on the entry, or --delete for the whole run.
-    */
-
+    // --delete turns mirroring on for one run, everywhere. Read out here, not
+    // inside the closure: an arrow fn captures $force_delete, but an undefined
+    // $delete would simply never be visible in there.
     $force_delete = isset($delete);
 
-    $sync_resolve = fn (array $list) => array_map(
-        fn (array $e) => $e + ['opts' => $force_delete || $e['delete'] ? '--delete' : ''],
-        $list
-    );
-
-    $sync_pull_dirs = $sync_resolve($sync_pull_dirs);
-    $sync_push_dirs = $sync_resolve($sync_push_dirs);
+    $sync_opts = fn (EnvoySyncDir $e) => $force_delete || $e->delete ? '--delete' : '';
 @endsetup
 
 @servers($servers)
@@ -604,34 +531,34 @@
 @task('storage-pull', ['on' => 'local'])
     set -e
 @if (! $sync_pull_dirs)
-    echo "## Nothing is declared to pull — see ENVOY_STORAGE_SYNC in .env, or pass --dir=<path>"
+    echo '## Nothing is declared to pull — see the sync_pull_dirs list in Envoy.blade.php, or pass --dir=<path>'
 @endif
 @foreach ($sync_pull_dirs as $e)
-    echo "## remote:{{ $e['path'] }} -> local"
-    mkdir -p {{ $local->path }}/{{ $e['path'] }}
-    rsync {{ $rsync_opts }} {{ $e['opts'] }} \
-        {{ $remote->ssh }}:{{ $remote->path }}/{{ $e['path'] }}/ \
-        {{ $local->path }}/{{ $e['path'] }}/
+    echo "## remote:{{ $e->path }} -> local"
+    mkdir -p {{ $local->path }}/{{ $e->path }}
+    rsync {{ $rsync_opts }} {{ $sync_opts($e) }} \
+        {{ $remote->ssh }}:{{ $remote->path }}/{{ $e->path }}/ \
+        {{ $local->path }}/{{ $e->path }}/
 @endforeach
 @endtask
 
 @task('storage-push', ['on' => 'local', 'confirm' => $confirm()])
     set -e
 @if (! $sync_push_dirs)
-    echo "## Nothing is declared to push — see ENVOY_STORAGE_SYNC in .env, or pass --dir=<path>"
+    echo '## Nothing is declared to push — see the sync_push_dirs list in Envoy.blade.php, or pass --dir=<path>'
 @endif
 @foreach ($sync_push_dirs as $e)
-    echo "## local:{{ $e['path'] }} -> remote"
-    ssh {{ $ssh_flag }} {{ $remote->ssh }} "mkdir -p {{ $remote->path }}/{{ $e['path'] }}"
-    rsync {{ $rsync_opts }} {{ $e['opts'] }} \
-        {{ $local->path }}/{{ $e['path'] }}/ \
-        {{ $remote->ssh }}:{{ $remote->path }}/{{ $e['path'] }}/
+    echo "## local:{{ $e->path }} -> remote"
+    ssh {{ $ssh_flag }} {{ $remote->ssh }} "mkdir -p {{ $remote->path }}/{{ $e->path }}"
+    rsync {{ $rsync_opts }} {{ $sync_opts($e) }} \
+        {{ $local->path }}/{{ $e->path }}/ \
+        {{ $remote->ssh }}:{{ $remote->path }}/{{ $e->path }}/
 @endforeach
 @endtask
 
 @task('storage-nothing-declared', ['on' => 'local'])
     echo "## No directories are declared, so there is nothing to do."
-    echo '##   e.g. ENVOY_STORAGE_SYNC="storage-pull --dir=storage/app/public"'
+    echo '##   e.g. sync_pull_dirs = [new EnvoySyncDir("storage/app/public")];'
 @endtask
 
 {{--
