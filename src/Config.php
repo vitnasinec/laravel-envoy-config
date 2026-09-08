@@ -68,6 +68,22 @@ final class Config
     }
 
     /**
+     * Whether the remote database may be written to by hand. A read-only one is
+     * never imported into and never rebuilt — db-push refuses, and the deploy
+     * migration is the only thing left that touches it.
+     */
+    public function canWriteRemote(): bool
+    {
+        return $this->remote->db !== null && ! $this->remote->db->readOnly;
+    }
+
+    /** The same question at this end: whether db-pull may import into local. */
+    public function canWriteLocal(): bool
+    {
+        return $this->local->db !== null && ! $this->local->db->readOnly;
+    }
+
+    /**
      * SQLite is not a switch to set, it is read off the two database names: one
      * ending in .sqlite is a path to a file rather than the name of a schema.
      */

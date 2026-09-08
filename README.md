@@ -45,6 +45,7 @@ Updating is `composer update vitnasinec/laravel-envoy-config` — the project's
 | Direction | **pull = remote → local**, **push = local → remote**, same as git |
 | Target | there is only one remote, so no command takes a target flag |
 | Writes to the remote | always confirm first |
+| Read-only databases | `readOnly: true` on an end, and nothing that writes to it is defined |
 | Configuration | one object, in the project's file, no indirection |
 | Secrets | the database usernames and passwords, from `.env`, and nothing else |
 
@@ -106,6 +107,33 @@ db: new Database('~/code/stage1/database/database.sqlite'),
 
 Both ends have to be the same kind — two names, or two `.sqlite` paths. A
 mismatch is a typo, not a transfer, and the file refuses to run.
+
+### Read-only database
+
+Some databases are never yours to overwrite — a production one you only ever
+pull from, a local one seeded by something other than a dump. `readOnly: true`
+says so on the end that has it:
+
+```php
+db: new Database(
+    database: 'example_db',
+    username: Env::get('PROD_DB_USERNAME'),
+    password: Env::get('PROD_DB_PASSWORD'),
+    readOnly: true,
+),
+```
+
+Then nothing that imports, drops or rebuilds that database is **defined** —
+not `db-import-remote`, not `db-push-sqlite` — rather than defined and refused
+at the last moment, and the story pointed that way stops with a message instead
+of running. On a read-only remote that is `db-push`; on a read-only local it is
+`db-pull`. Reads are untouched: `db-dump` and `db-download` still work, since
+neither writes anything.
+
+The one thing that still writes to it is `deploy`'s `migrate` — a read-only
+database is one no dump may be poured into, not one the schema stops moving
+forward on. Each end is marked on its own, and marking both is fine: then the
+migration is all that ever touches either.
 
 ### No database
 
@@ -169,7 +197,9 @@ Everything that changes the remote confirms first — `db-import-remote`,
 before answering. `db-upload` only drops a file in the dump dir, so it doesn't ask.
 
 On a project with no database none of these tasks exists, and `db-pull` /
-`db-push` say so — see [No database](#no-database).
+`db-push` say so — see [No database](#no-database). An end marked
+`readOnly: true` loses the tasks that write to it the same way — see
+[Read-only database](#read-only-database).
 
 SQLite projects transfer the file itself. Point both `database` fields at the
 `.sqlite` paths and `db-pull` / `db-push` rsync the file instead of dumping,
@@ -197,7 +227,8 @@ envoy run storage-sync --dry
 Each is runnable on its own: `git-push` `git-repush` `git-pull` `git-reset`
 `down` `up` `clear` `optimize` `migrate` `composer-install` `npm-build`
 `status`, plus `db-dump-local` `db-download` `db-upload` `db-import-remote`.
-The `db-` ones and `migrate` are defined only when the project has a database.
+The `db-` ones and `migrate` are defined only when the project has a database,
+and the ones that write to a `readOnly:` end are not defined at all.
 
 ## Which way does the data go?
 
@@ -275,7 +306,7 @@ shared tasks use (`$remote`, `$local`) are local to the imported file:
 | `Envoy.blade.php` | the tasks and stories, imported from `vendor` and never edited |
 | `src/Config.php` | the whole configuration, plus everything derived from it |
 | `src/Environment.php` | one end of the map, and the ssh / scp / rsync spellings of its port |
-| `src/Database.php` | one database, and whether it is a MySQL schema or a SQLite file — `null` on the environments of a project that has none |
+| `src/Database.php` | one database, whether it is a MySQL schema or a SQLite file, and whether anything may be written into it — `null` on the environments of a project that has none |
 | `src/SyncDir.php` | one directory that mirrors |
 | `src/Env.php` | the two credential pairs, out of the project's `.env` |
 

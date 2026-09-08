@@ -43,6 +43,11 @@
     $has_db = $envoy->hasDatabase();
     $sqlite = $envoy->isSqlite();
 
+    /* A read-only database is one nothing may be written into by hand. */
+
+    $write_remote = $envoy->canWriteRemote();
+    $write_local  = $envoy->canWriteLocal();
+
     /* Transfer helpers — one place that knows about non-standard SSH ports. */
 
     $ssh_flag   = $remote->sshFlag();
@@ -175,6 +180,11 @@
 |--------------------------------------------------------------------------
 | A project can have no database at all — db: left off both environments —
 | and then none of these tasks is defined, and the two stories say so instead.
+|
+| An end marked readOnly: true is the same idea, one end at a time: nothing
+| that imports, drops or rebuilds that database is defined, and its story
+| refuses. Dumping and downloading read it and are left alone, and so is the
+| deploy migration, which is the only thing that still writes to it.
 --}}
 
 @if ($has_db)
@@ -227,6 +237,8 @@
     scp {{ $scp_flag }} {{ $local->dumps }}/{{ $dump_latest }} {{ $remote->ssh }}:{{ $remote->dumps }}/{{ $dump_latest }}
 @endtask
 
+@if ($write_local)
+
 @task('db-import', ['on' => 'local', 'confirm' => true])
     set -e
     cd {{ $local->path }}
@@ -242,6 +254,10 @@
     {{ $local->php }} artisan migrate --force --quiet
     {{ $local->php }} artisan optimize:clear --quiet
 @endtask
+
+@endif
+
+@if ($write_remote)
 
 {{--
 | Drops and rebuilds the remote database, then imports the dump--latest.sql
@@ -266,8 +282,11 @@
     {{ $remote->php }} artisan optimize:clear --quiet
 @endtask
 
+@endif
+
 {{-- SQLite projects transfer the file itself instead of dumping. --}}
 
+@if ($write_local)
 @task('db-pull-sqlite', ['on' => 'local'])
     set -e
     echo "## Downloading the remote sqlite database"
@@ -275,7 +294,9 @@
         {{ $remote->ssh }}:{{ $remote->db->database }} \
         {{ $local->db->database }}
 @endtask
+@endif
 
+@if ($write_remote)
 @task('db-push-sqlite', ['on' => 'local', 'confirm' => true])
     set -e
     echo "## Uploading local sqlite database to the remote"
@@ -283,6 +304,25 @@
         {{ $local->db->database }} \
         {{ $remote->ssh }}:{{ $remote->db->database }}
 @endtask
+@endif
+
+{{-- What a read-only end says instead, and it stops the story it is in. --}}
+
+@if (! $write_local)
+@task('db-local-read-only', ['on' => 'local'])
+    echo "## The local database {{ $local->db->database }} is read-only, so nothing may be written into it."
+    echo '##   drop readOnly: true from the local db: in Envoy.blade.php to allow it'
+    exit 1
+@endtask
+@endif
+
+@if (! $write_remote)
+@task('db-remote-read-only', ['on' => 'local'])
+    echo "## The remote database {{ $remote->db->database }} is read-only, so nothing may be written into it."
+    echo '##   only the deploy migration writes to it; drop readOnly: true to allow the rest'
+    exit 1
+@endtask
+@endif
 
 @else
 
@@ -395,6 +435,8 @@
 @story('db-pull')
 @if (! $has_db)
     db-not-configured
+@elseif (! $write_local)
+    db-local-read-only
 @elseif ($sqlite)
     db-pull-sqlite
 @else
@@ -407,6 +449,8 @@
 @story('db-push')
 @if (! $has_db)
     db-not-configured
+@elseif (! $write_remote)
+    db-remote-read-only
 @elseif ($sqlite)
     db-push-sqlite
 @else

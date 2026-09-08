@@ -13,12 +13,19 @@ namespace Vitnasinec\EnvoyConfig;
  */
 final class Database
 {
+    /**
+     * @param  bool  $readOnly  a database that is never written to by hand.
+     *                          Nothing that imports, drops or rebuilds it is
+     *                          defined at all — only the deploy migration still
+     *                          runs against it. Off unless the project says so.
+     */
     public function __construct(
         public readonly string $database,
         public readonly ?string $host = '127.0.0.1',
         public readonly ?int $port = 3306,
         public readonly ?string $username = null,
         public readonly ?string $password = null,
+        public readonly bool $readOnly = false,
     ) {
     }
 

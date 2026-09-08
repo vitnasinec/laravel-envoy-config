@@ -57,6 +57,14 @@
         |           only ever ships code. Then no database task exists at all,
         |           and deploy skips the migration.
         |
+        |           readOnly: true on either end marks a database nothing may
+        |           be written into by hand. Nothing that imports, drops or
+        |           rebuilds it is defined, and the story pointed that way
+        |           refuses; deploy's migration is the only thing left that
+        |           writes to it. Off unless set:
+        |
+        |               db: new Database('example_db', readOnly: true, ...),
+        |
         | The usernames and passwords are the only thing read from .env, because
         | this file is committed and they are not.
         */
@@ -90,6 +98,9 @@
         | With no database it is the whole line:
         |
         |     local: Environment::local(),
+        |
+        | readOnly: true works here too, and then db-pull refuses instead of
+        | db-push — the local database is never imported into either.
         */
 
         local: Environment::local(
