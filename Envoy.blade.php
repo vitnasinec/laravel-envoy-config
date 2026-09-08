@@ -40,6 +40,7 @@
 
     $remote = $envoy->remote;
     $local  = $envoy->local;
+    $has_db = $envoy->hasDatabase();
     $sqlite = $envoy->isSqlite();
 
     /* Transfer helpers — one place that knows about non-standard SSH ports. */
@@ -147,12 +148,14 @@
     {{ $remote->npm }} run --silent build
 @endtask
 
+@if ($has_db)
 @task('migrate', ['on' => 'remote', 'confirm' => true])
     set -e
     cd {{ $remote->path }}
     echo "## Migrating the remote database"
     {{ $remote->php }} artisan migrate --force --ansi
 @endtask
+@endif
 
 @task('optimize', ['on' => 'remote'])
     set -e
@@ -170,7 +173,11 @@
 |--------------------------------------------------------------------------
 | Database — dump / transfer / import
 |--------------------------------------------------------------------------
+| A project can have no database at all — db: left off both environments —
+| and then none of these tasks is defined, and the two stories say so instead.
 --}}
+
+@if ($has_db)
 
 @task('db-dump', ['on' => 'remote'])
     set -e
@@ -277,6 +284,15 @@
         {{ $remote->ssh }}:{{ $remote->db->database }}
 @endtask
 
+@else
+
+@task('db-not-configured', ['on' => 'local'])
+    echo "## This project has no database, so there is nothing to do."
+    echo '##   give db: to both environments in Envoy.blade.php to add one'
+@endtask
+
+@endif
+
 {{--
 |--------------------------------------------------------------------------
 | Storage
@@ -351,7 +367,9 @@
     git-pull
 @endif
     composer-install
+@if ($has_db)
     migrate
+@endif
 @if ($remote->build)
     npm-build
 @endif
@@ -375,7 +393,9 @@
 --}}
 
 @story('db-pull')
-@if ($sqlite)
+@if (! $has_db)
+    db-not-configured
+@elseif ($sqlite)
     db-pull-sqlite
 @else
     db-dump
@@ -385,7 +405,9 @@
 @endstory
 
 @story('db-push')
-@if ($sqlite)
+@if (! $has_db)
+    db-not-configured
+@elseif ($sqlite)
     db-push-sqlite
 @else
     db-dump-local

@@ -30,6 +30,9 @@ from `.env.example` to the project's `.env`, and add the dump directory to
 /storage/envoy
 ```
 
+A project with no database needs neither of those last two steps — see
+[No database](#no-database).
+
 Updating is `composer update vitnasinec/laravel-envoy-config` — the project's
 `Envoy.blade.php` is yours and is never touched.
 
@@ -56,8 +59,8 @@ $envoy = new Config(
         ssh: 'exampleuser@example.pef.czu.cz',   // or the bare host, if ~/.ssh/config knows the user
         port: null,                              // a number only to override ~/.ssh/config's port
         path: '~/code/stage1',                   // project root on the server
-        dumps: '~/code/temp',                    // where dumps are written there
         branch: 'main',                          // the branch the server runs
+        dumps: '~/code/temp',                    // where dumps are written there; only MySQL dumps
         php: 'php',                              // absolute paths for hosts that lack them on PATH,
         composer: 'composer',                    //   e.g. '/opt/alt/php83/usr/bin/php'
         npm: 'npm',                              //   or  'php ~/code/bin/composer'
@@ -104,6 +107,31 @@ db: new Database('~/code/stage1/database/database.sqlite'),
 Both ends have to be the same kind — two names, or two `.sqlite` paths. A
 mismatch is a typo, not a transfer, and the file refuses to run.
 
+### No database
+
+Plenty of projects have none — a static site, a front end, anything that only
+ever ships code. Leave `db:` off **both** environments and there is nothing
+else to say:
+
+```php
+$envoy = new Config(
+    remote: new Environment(ssh: 'me@example.com', path: '~/code/stage1', branch: 'main'),
+    local:  Environment::local(),
+    pull:   [new SyncDir('storage/app')],
+);
+```
+
+Then not one database task is defined — no `db-dump`, no `db-import`, not even
+`migrate` — rather than each of them failing when run. `deploy` is `code-push`
+plus `composer install`, with the migration left out, and `db-pull` / `db-push`
+say the project has no database and stop. Everything else is unchanged.
+
+`dumps:` exists for MySQL dumps alone, so a project without a database — or a
+SQLite one — leaves it out too. A MySQL project that forgets it is refused
+before anything runs, the same as a missing username. Leaving `db:` on one end
+only is refused as well: there is no transfer between a database and no
+database.
+
 | Setting | |
 |---|---|
 | `pull:` `push:` | which directories move, and which way — see [below](#which-way-does-the-data-go) |
@@ -120,7 +148,7 @@ to build the right schema before importing, then puts you back.
 |---|---|
 | `code-push` (`push`) | **Fast deploy.** down → `git push` → remote checks out *your* branch and pulls → build, if the remote's `build:` says so → `optimize` → up. No composer install, no migrations — that is the point of it. Your local branch never moves; the remote is moved to match it. |
 | `code-push --force` | Same, but `git add -A` + `commit --amend` + `push --force-with-lease`, and the remote hard-resets to origin. The iterate-on-a-server-only-bug loop. Confirms before the reset. |
-| `deploy` | **Full deploy.** Everything `code-push` does, plus `composer install --no-dev --optimize-autoloader` and `migrate` between the pull and the build. The migration confirms. |
+| `deploy` | **Full deploy.** Everything `code-push` does, plus `composer install --no-dev --optimize-autoloader` and `migrate` between the pull and the build. The migration confirms, and is skipped altogether on a project with no database. |
 
 `push` is an alias — every flag passes straight through, so
 `envoy run push --force` is `code-push --force`.
@@ -139,6 +167,9 @@ Everything that changes the remote confirms first — `db-import-remote`,
 `db-push-sqlite`, `storage-push`, `migrate`, `git-reset`. `db-import-remote` runs
 `migrate:fresh` against the remote database, so it is the one to read twice
 before answering. `db-upload` only drops a file in the dump dir, so it doesn't ask.
+
+On a project with no database none of these tasks exists, and `db-pull` /
+`db-push` say so — see [No database](#no-database).
 
 SQLite projects transfer the file itself. Point both `database` fields at the
 `.sqlite` paths and `db-pull` / `db-push` rsync the file instead of dumping,
@@ -166,6 +197,7 @@ envoy run storage-sync --dry
 Each is runnable on its own: `git-push` `git-repush` `git-pull` `git-reset`
 `down` `up` `clear` `optimize` `migrate` `composer-install` `npm-build`
 `status`, plus `db-dump-local` `db-download` `db-upload` `db-import-remote`.
+The `db-` ones and `migrate` are defined only when the project has a database.
 
 ## Which way does the data go?
 
@@ -243,7 +275,7 @@ shared tasks use (`$remote`, `$local`) are local to the imported file:
 | `Envoy.blade.php` | the tasks and stories, imported from `vendor` and never edited |
 | `src/Config.php` | the whole configuration, plus everything derived from it |
 | `src/Environment.php` | one end of the map, and the ssh / scp / rsync spellings of its port |
-| `src/Database.php` | one database, and whether it is a MySQL schema or a SQLite file |
+| `src/Database.php` | one database, and whether it is a MySQL schema or a SQLite file — `null` on the environments of a project that has none |
 | `src/SyncDir.php` | one directory that mirrors |
 | `src/Env.php` | the two credential pairs, out of the project's `.env` |
 

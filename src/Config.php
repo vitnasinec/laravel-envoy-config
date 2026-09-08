@@ -58,12 +58,22 @@ final class Config
     }
 
     /**
+     * Whether there is a database at all. A project can have none — a static
+     * site, a front end, anything that only ever ships code — and then not one
+     * database task is defined, rather than each of them failing when run.
+     */
+    public function hasDatabase(): bool
+    {
+        return $this->local->db !== null;
+    }
+
+    /**
      * SQLite is not a switch to set, it is read off the two database names: one
      * ending in .sqlite is a path to a file rather than the name of a schema.
      */
     public function isSqlite(): bool
     {
-        return $this->local->db->isSqlite();
+        return $this->local->db?->isSqlite() ?? false;
     }
 
     /** @return array<string, string> */
@@ -97,19 +107,16 @@ final class Config
 
     private function validate(): void
     {
-        if ($this->remote->db->isSqlite() !== $this->local->db->isSqlite()) {
+        if (($this->remote->db === null) !== ($this->local->db === null)) {
             throw new RuntimeException(
-                'Envoy: one database is a .sqlite path and the other is not. Both ends '
-                .'must be the same kind — remote: '.$this->remote->db->database
-                .', local: '.$this->local->db->database
+                'Envoy: one end has a database and the other does not. Give db: to both '
+                .'environments, or to neither — there is nothing to transfer between a '
+                .'database and no database.'
             );
         }
 
-        if (! $this->isSqlite() && (! $this->remote->db->username || ! $this->local->db->username)) {
-            throw new RuntimeException(
-                'Envoy: database credentials come from .env. Set PROD_DB_USERNAME / '
-                .'PROD_DB_PASSWORD for the remote, DB_USERNAME / DB_PASSWORD for local.'
-            );
+        if ($this->remote->db !== null && $this->local->db !== null) {
+            $this->validateDatabases($this->remote->db, $this->local->db);
         }
 
         if ($this->remote->ssh === '') {
@@ -126,6 +133,36 @@ final class Config
                     ."new SyncDir('storage/app')."
                 );
             }
+        }
+    }
+
+    private function validateDatabases(Database $remote, Database $local): void
+    {
+        if ($remote->isSqlite() !== $local->isSqlite()) {
+            throw new RuntimeException(
+                'Envoy: one database is a .sqlite path and the other is not. Both ends '
+                .'must be the same kind — remote: '.$remote->database
+                .', local: '.$local->database
+            );
+        }
+
+        if ($remote->isSqlite()) {
+            return;
+        }
+
+        if (! $remote->username || ! $local->username) {
+            throw new RuntimeException(
+                'Envoy: database credentials come from .env. Set PROD_DB_USERNAME / '
+                .'PROD_DB_PASSWORD for the remote, DB_USERNAME / DB_PASSWORD for local.'
+            );
+        }
+
+        if ($this->remote->dumps === '' || $this->local->dumps === '') {
+            throw new RuntimeException(
+                'Envoy: a MySQL project dumps to a directory, and one of the two ends '
+                .'has no dumps: path. Set it on the remote; the local end defaults to '
+                .'storage/envoy.'
+            );
         }
     }
 }

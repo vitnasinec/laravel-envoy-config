@@ -35,9 +35,10 @@
         | port      left out, ssh reads the port from ~/.ssh/config; a number
         |           here overrides that, which is not the same as 22
         | path      project root on the server
-        | dumps     where dumps are written there
         | branch    the branch the server runs — db-import borrows it to build
         |           the right schema before importing
+        | dumps     where dumps are written there; leave it out on a project
+        |           with no database, or a SQLite one, since neither dumps
         | php       absolute paths for hosts that don't have them on PATH, e.g.
         | composer  php: '/opt/alt/php83/usr/bin/php'
         | npm       composer: 'php ~/code/bin/composer'
@@ -51,6 +52,11 @@
         |
         |               db: new Database('~/code/stage1/database/database.sqlite'),
         |
+        |           Leave db: off both environments entirely on a project that
+        |           has no database — a static site, a front end, anything that
+        |           only ever ships code. Then no database task exists at all,
+        |           and deploy skips the migration.
+        |
         | The usernames and passwords are the only thing read from .env, because
         | this file is committed and they are not.
         */
@@ -58,8 +64,8 @@
         remote: new Environment(
             ssh: 'exampleuser@example.pef.czu.cz',
             path: '~/code/stage1',
-            dumps: '~/code/temp',
             branch: 'main',
+            dumps: '~/code/temp',
             php: 'php',
             composer: 'composer',
             npm: 'npm',
@@ -78,8 +84,12 @@
         | about it but the database: the path is where this file sits, the dump
         | directory is storage/envoy under it, and the branch is whichever one
         | you are on right now. Its database has to be the same kind as the
-        | remote's — two names, or two .sqlite paths — because there is no
-        | transfer between the two kinds.
+        | remote's — two names, two .sqlite paths, or no db: on either end —
+        | because there is no transfer between two different kinds.
+        |
+        | With no database it is the whole line:
+        |
+        |     local: Environment::local(),
         */
 
         local: Environment::local(

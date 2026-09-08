@@ -17,6 +17,10 @@ use RuntimeException;
 final class Environment
 {
     /**
+     * @param  string  $dumps  where dumps are written at this end — needed only
+     *                         by a MySQL project, so it defaults to nowhere
+     * @param  Database|null  $db  null when the project has no database at all,
+     *                             and then no database task is defined
      * @param  int|null  $port  null defers to ~/.ssh/config, which is not the
      *                          same as forcing 22 — set it only to override
      * @param  bool  $build  whether deploy and code-push build assets on this end
@@ -24,9 +28,9 @@ final class Environment
      */
     public function __construct(
         public readonly string $path,
-        public readonly string $dumps,
         public readonly string $branch,
-        public readonly Database $db,
+        public readonly string $dumps = '',
+        public readonly ?Database $db = null,
         public readonly string $ssh = '',
         public readonly ?int $port = null,
         public readonly string $php = 'php',
@@ -42,7 +46,7 @@ final class Environment
      * whichever one you are on right now.
      */
     public static function local(
-        Database $db,
+        ?Database $db = null,
         ?string $path = null,
         ?string $dumps = null,
         ?string $branch = null,
@@ -54,8 +58,8 @@ final class Environment
 
         return new self(
             path: $path,
-            dumps: $dumps ?? $path.'/storage/envoy',
             branch: $branch ?? self::currentBranch($path),
+            dumps: $dumps ?? $path.'/storage/envoy',
             db: $db,
             php: $php,
             composer: $composer,
