@@ -32,6 +32,8 @@
         | The remote — the one server there is.
         |
         | ssh       user@host, or the bare host when ~/.ssh/config knows the user
+        | port      left out, ssh reads the port from ~/.ssh/config; a number
+        |           here overrides that, which is not the same as 22
         | path      project root on the server
         | dumps     where dumps are written there
         | branch    the branch the server runs — db-import borrows it to build
@@ -55,7 +57,6 @@
 
         remote: new Environment(
             ssh: 'exampleuser@example.pef.czu.cz',
-            port: 22,
             path: '~/code/stage1',
             dumps: '~/code/temp',
             branch: 'main',

@@ -17,6 +17,8 @@ use RuntimeException;
 final class Environment
 {
     /**
+     * @param  int|null  $port  null defers to ~/.ssh/config, which is not the
+     *                          same as forcing 22 — set it only to override
      * @param  bool  $build  whether deploy and code-push build assets on this end
      *                       — off unless the project says otherwise
      */
@@ -26,7 +28,7 @@ final class Environment
         public readonly string $branch,
         public readonly Database $db,
         public readonly string $ssh = '',
-        public readonly int $port = 22,
+        public readonly ?int $port = null,
         public readonly string $php = 'php',
         public readonly string $composer = 'composer',
         public readonly string $npm = 'npm',
@@ -61,22 +63,22 @@ final class Environment
         );
     }
 
-    /** `-p 2222`, for ssh. Empty on the standard port. */
+    /** `-p 2222`, for ssh. Empty when the port is ssh's own business. */
     public function sshFlag(): string
     {
-        return $this->port === 22 ? '' : "-p {$this->port}";
+        return $this->port === null ? '' : "-p {$this->port}";
     }
 
     /** `-P 2222`, for scp — the same thing spelled differently. */
     public function scpFlag(): string
     {
-        return $this->port === 22 ? '' : "-P {$this->port}";
+        return $this->port === null ? '' : "-P {$this->port}";
     }
 
     /** `-e 'ssh -p 2222'`, for rsync — the same thing spelled differently again. */
     public function rsyncShell(): string
     {
-        return $this->port === 22 ? '' : "-e 'ssh -p {$this->port}'";
+        return $this->port === null ? '' : "-e 'ssh -p {$this->port}'";
     }
 
     private static function currentBranch(string $path): string

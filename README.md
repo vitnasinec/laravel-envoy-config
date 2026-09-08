@@ -54,7 +54,7 @@ Everything is one `Config` object in the project's `Envoy.blade.php`, above the
 $envoy = new Config(
     remote: new Environment(
         ssh: 'exampleuser@example.pef.czu.cz',   // or the bare host, if ~/.ssh/config knows the user
-        port: 22,
+        port: null,                              // a number only to override ~/.ssh/config's port
         path: '~/code/stage1',                   // project root on the server
         dumps: '~/code/temp',                    // where dumps are written there
         branch: 'main',                          // the branch the server runs
