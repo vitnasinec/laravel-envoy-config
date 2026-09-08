@@ -29,7 +29,7 @@
     $envoy = new Config(
 
         /*
-        | The remote — the one server there is.
+        | The remote — usually the one server there is.
         |
         | ssh       user@host, or the bare host when ~/.ssh/config knows the user
         | port      left out, ssh reads the port from ~/.ssh/config; a number
@@ -52,13 +52,13 @@
         |
         |               db: new Database('~/code/stage1/database/database.sqlite'),
         |
-        |           Leave db: off both environments entirely on a project that
-        |           has no database — a static site, a front end, anything that
-        |           only ever ships code. Then no database task exists at all,
-        |           and deploy skips the migration.
+        |           Leave db: off every environment on a project that has no
+        |           database — a static site, a front end, anything that only
+        |           ever ships code. Then no database task exists at all, and
+        |           deploy skips the migration.
         |
-        |           readOnly: true on either end marks a database nothing may
-        |           be written into by hand. Nothing that imports, drops or
+        |           readOnly: true on an end marks a database nothing may be
+        |           written into by hand. Nothing that imports, drops or
         |           rebuilds it is defined, and the story pointed that way
         |           refuses; deploy's migration is the only thing left that
         |           writes to it. Off unless set:
@@ -67,6 +67,44 @@
         |
         | The usernames and passwords are the only thing read from .env, because
         | this file is committed and they are not.
+        |
+        | More than one server — prod and dev, say — is a list instead, keyed by
+        | the name each answers to. The name is the flag that picks it, so every
+        | command then has to say which one it means: envoy run deploy --prod.
+        | There is no default and no last-used, because a default is how a
+        | deploy meant for dev arrives on prod. Everything else is per remote —
+        | its own branch, port, build:, db:, readOnly: — so a read-only prod and
+        | a writable dev are two entries and nothing more:
+        |
+        |     remote: [
+        |         'prod' => new Environment(
+        |             ssh: 'exampleuser@example.pef.czu.cz',
+        |             path: '~/code/prod',
+        |             branch: 'main',
+        |             dumps: '~/code/temp',
+        |             build: true,
+        |             db: new Database(
+        |                 database: 'example_prod',
+        |                 username: Env::get('PROD_DB_USERNAME'),
+        |                 password: Env::get('PROD_DB_PASSWORD'),
+        |                 readOnly: true,
+        |             ),
+        |         ),
+        |         'dev' => new Environment(
+        |             ssh: 'exampleuser@dev.pef.czu.cz',
+        |             path: '~/code/dev',
+        |             branch: 'develop',
+        |             dumps: '~/code/temp',
+        |             db: new Database(
+        |                 database: 'example_dev',
+        |                 username: Env::get('DEV_DB_USERNAME'),
+        |                 password: Env::get('DEV_DB_PASSWORD'),
+        |             ),
+        |         ),
+        |     ],
+        |
+        | Give each its own credentials in .env — the prefix is yours to pick,
+        | but naming it after the remote is the one that stays readable.
         */
 
         remote: new Environment(
@@ -91,9 +129,9 @@
         | Here. Nothing is ever ssh'd to this end, so there is nothing to say
         | about it but the database: the path is where this file sits, the dump
         | directory is storage/envoy under it, and the branch is whichever one
-        | you are on right now. Its database has to be the same kind as the
-        | remote's — two names, two .sqlite paths, or no db: on either end —
-        | because there is no transfer between two different kinds.
+        | you are on right now. Its database has to be the same kind as every
+        | remote's — all names, all .sqlite paths, or no db: anywhere — because
+        | there is no transfer between two different kinds.
         |
         | With no database it is the whole line:
         |
@@ -117,7 +155,8 @@
         | remembered at the keyboard: these two lists are the only thing the
         | storage commands read. Paths are project-relative, anything not
         | listed is never touched in either direction, and with both lists
-        | empty they move nothing at all.
+        | empty they move nothing at all. Which remote they move to or from is
+        | the one thing left to the command line.
         |
         | delete: true makes the destination an exact mirror, which deletes
         | files at the far end that were never here. Off unless asked for.
@@ -157,5 +196,7 @@
 |     @endtask
 |
 | $envoy is the only name in scope here; the shorthands the shared tasks use
-| are local to the imported file and do not reach back out to this one.
+| are local to the imported file and do not reach back out to this one. On a
+| project with several remotes $envoy->remote is already the one the flag
+| chose, and $envoy->remoteName is what it is called.
 --}}

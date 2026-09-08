@@ -1,8 +1,8 @@
 # laravel-envoy-config
 
 One Envoy setup for every project. The tasks live in `vendor` and update with
-composer; the project keeps a single **Config object** — the remote, the local
-database, which directories mirror — and imports the rest.
+composer; the project keeps a single **Config object** — the remote or remotes,
+the local database, which directories mirror — and imports the rest.
 
 ```php
 $envoy = new Config(
@@ -40,11 +40,11 @@ Updating is `composer update vitnasinec/laravel-envoy-config` — the project's
 
 | | |
 |---|---|
-| Environments | `local` and one remote — that is the whole map |
+| Environments | `local`, and one remote — or several, one chosen per run |
 | Command names | `<subject>-<verb>`: `code-push`, `db-pull`, `storage-sync` |
 | Direction | **pull = remote → local**, **push = local → remote**, same as git |
-| Target | there is only one remote, so no command takes a target flag |
-| Writes to the remote | always confirm first |
+| Target | one remote takes no flag; several take one on every command, and there is no default |
+| Writes to the remote | always confirm first, and the question names the remote |
 | Read-only databases | `readOnly: true` on an end, and nothing that writes to it is defined |
 | Configuration | one object, in the project's file, no indirection |
 | Secrets | the database usernames and passwords, from `.env`, and nothing else |
@@ -52,7 +52,7 @@ Updating is `composer update vitnasinec/laravel-envoy-config` — the project's
 ## Config
 
 Everything is one `Config` object in the project's `Envoy.blade.php`, above the
-`@import` line. Two environments and two mirror lists.
+`@import` line. The environments and two mirror lists.
 
 ```php
 $envoy = new Config(
@@ -105,8 +105,78 @@ and `db-push` transfer that file instead of dumping, and `host`, `port`,
 db: new Database('~/code/stage1/database/database.sqlite'),
 ```
 
-Both ends have to be the same kind — two names, or two `.sqlite` paths. A
+Every end has to be the same kind — all names, or all `.sqlite` paths. A
 mismatch is a typo, not a transfer, and the file refuses to run.
+
+### More than one remote
+
+Usually there is one server and nothing to choose. Sometimes there are two — a
+`prod` and a `dev` — and then `remote:` is a list keyed by the name each
+answers to:
+
+```php
+remote: [
+    'prod' => new Environment(
+        ssh: 'me@example.com',
+        path: '~/code/prod',
+        branch: 'main',
+        dumps: '~/code/temp',
+        build: true,
+        db: new Database(
+            database: 'example_prod',
+            username: Env::get('PROD_DB_USERNAME'),
+            password: Env::get('PROD_DB_PASSWORD'),
+            readOnly: true,
+        ),
+    ),
+    'dev' => new Environment(
+        ssh: 'me@dev.example.com',
+        path: '~/code/dev',
+        branch: 'develop',
+        dumps: '~/code/temp',
+        db: new Database(
+            database: 'example_dev',
+            username: Env::get('DEV_DB_USERNAME'),
+            password: Env::get('DEV_DB_PASSWORD'),
+        ),
+    ),
+],
+```
+
+**The name is the flag that picks it**, so every command then says which remote
+it means:
+
+```sh
+envoy run deploy --prod
+envoy run db-pull --dev
+envoy run storage-sync --prod
+```
+
+There is no default and no last-used, and a command without a flag does not
+run — it says which flags there are and stops:
+
+```
+Envoy: this project has more than one remote, so every command has to say
+which one it means: --prod, --dev. For example, envoy run deploy --prod.
+```
+
+A default is how a deploy meant for `dev` arrives on `prod`, so there isn't
+one. Two flags at once is refused for the same reason. Everything that writes
+asks first, and with several remotes the question names the one it is about —
+*Migrate the database on prod?* — rather than only the task.
+
+Names are lowercase, and become `--flags`, so they cannot be one Envoy already
+uses (`--pretend`, `--continue`, `--force`, `--dry`, …). Everything else is
+**per remote**: its own `branch`, `port`, `build:`, `db:` and `readOnly:`, its
+own credentials in `.env`. A read-only `prod` beside a writable `dev` is two
+entries and nothing more — `db-push --prod` refuses, `db-push --dev` runs.
+
+One remote is not a choice, so it takes no flag and nothing above applies. A
+single *named* remote (`remote: ['staging' => ...]`) is still one remote and
+still takes none; the flags start being required the day a second one is added.
+
+`envoy tasks` only lists what there is and runs nothing, so it needs no flag
+either.
 
 ### Read-only database
 
@@ -138,7 +208,7 @@ migration is all that ever touches either.
 ### No database
 
 Plenty of projects have none — a static site, a front end, anything that only
-ever ships code. Leave `db:` off **both** environments and there is nothing
+ever ships code. Leave `db:` off **every** environment and there is nothing
 else to say:
 
 ```php
@@ -158,7 +228,8 @@ say the project has no database and stop. Everything else is unchanged.
 SQLite one — leaves it out too. A MySQL project that forgets it is refused
 before anything runs, the same as a missing username. Leaving `db:` on one end
 only is refused as well: there is no transfer between a database and no
-database.
+database. With several remotes every one of them is checked, whichever the
+flag would have picked.
 
 | Setting | |
 |---|---|
@@ -179,7 +250,7 @@ to build the right schema before importing, then puts you back.
 | `deploy` | **Full deploy.** Everything `code-push` does, plus `composer install --no-dev --optimize-autoloader` and `migrate` between the pull and the build. The migration confirms, and is skipped altogether on a project with no database. |
 
 `push` is an alias — every flag passes straight through, so
-`envoy run push --force` is `code-push --force`.
+`envoy run push --force --prod` is `code-push --force --prod`.
 
 ### Database
 
@@ -199,7 +270,9 @@ before answering. `db-upload` only drops a file in the dump dir, so it doesn't a
 On a project with no database none of these tasks exists, and `db-pull` /
 `db-push` say so — see [No database](#no-database). An end marked
 `readOnly: true` loses the tasks that write to it the same way — see
-[Read-only database](#read-only-database).
+[Read-only database](#read-only-database). With several remotes each of these
+runs against the one the flag named, and against no other: `db-pull --dev`
+dumps `dev` and imports it here, and `prod` is not touched.
 
 SQLite projects transfer the file itself. Point both `database` fields at the
 `.sqlite` paths and `db-pull` / `db-push` rsync the file instead of dumping,
@@ -214,12 +287,14 @@ keeping a `.bak` at the destination. Nothing else changes.
 | `storage-sync` | Both declared directions in one run. |
 
 There is no ad-hoc path flag. What moves is whatever the two lists in the file
-name, so a one-off transfer is an edit to the list, not a flag at the keyboard:
+name, so a one-off transfer is an edit to the list, not a flag at the keyboard.
+Which remote it moves to or from is the one thing the keyboard decides:
 
 ```sh
 envoy run storage-pull
 envoy run storage-push
 envoy run storage-sync --dry
+envoy run storage-pull --prod        # when there is more than one remote
 ```
 
 ### Building blocks
@@ -272,11 +347,13 @@ decide once, in the file, where the next person can read it.
 
 | Flag | Effect |
 |---|---|
+| `--prod` `--dev` … | which remote the command is for. Named after the remotes in the file, and required on every command as soon as there is more than one |
 | `--force` | on `code-push` / `deploy`: amend + force-push, hard-reset the remote |
 | `--dry` | rsync dry run with `--itemize-changes` |
 
 Envoy stops parsing its own options at the first one it doesn't know, so put
-`--pretend` and `--continue` *before* any of the above.
+`--pretend`, `--continue` and `--path` *before* any of the above:
+`envoy run deploy --pretend --prod`, not the other way round.
 
 ## Project-specific tasks
 
@@ -306,6 +383,7 @@ shared tasks use (`$remote`, `$local`) are local to the imported file:
 | `Envoy.blade.php` | the tasks and stories, imported from `vendor` and never edited |
 | `src/Config.php` | the whole configuration, plus everything derived from it |
 | `src/Environment.php` | one end of the map, and the ssh / scp / rsync spellings of its port |
+| `src/CommandLine.php` | the arguments Envoy was called with, read for which remote a command means |
 | `src/Database.php` | one database, whether it is a MySQL schema or a SQLite file, and whether anything may be written into it — `null` on the environments of a project that has none |
 | `src/SyncDir.php` | one directory that mirrors |
 | `src/Env.php` | the two credential pairs, out of the project's `.env` |
@@ -336,4 +414,12 @@ shared tasks use (`$remote`, `$local`) are local to the imported file:
   `$this = …` and died on `Cannot re-assign $this`. In `src/` that limit is
   gone: `isSqlite()`, `ignoreFlags()`, `sshFlag()` and the rest sit on the
   objects they belong to instead of being closures below the config block.
+- The remote is chosen from the arguments Envoy was called with, in
+  `src/CommandLine.php`, rather than from the `$prod` variable Envoy hands the
+  template. It has to be: the `Config` object is built at the top of the
+  project's file and every task below it — the project's own included — is
+  rendered against the remote it settled on, which is well before a task body
+  could read a variable. Same argument, one step earlier.
+- `envoy tasks` renders the tasks without running any, so it does not ask which
+  remote it is for. Nothing else skips the flag.
 - Requires PHP 8.1 for `readonly`.

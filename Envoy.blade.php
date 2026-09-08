@@ -8,11 +8,14 @@
 | name on its last line — see stubs/Envoy.blade.php, which is that file. Every
 | task below reads that object and nothing else.
 |
-| Environments   local and one remote — that is the whole map
+| Environments   local, and one remote — or several, one chosen per run
 | Direction      push = local -> remote,  pull = remote -> local
 |
-| There is no server to choose, so no command takes a target flag. Everything
-| that writes to the remote asks first.
+| A project with one remote has nothing to choose, so no command takes a flag.
+| A project with several — prod and dev — names them, and then every command
+| says which one it means: --prod, --dev. There is no default remote, because
+| a default is how a deploy meant for dev arrives on prod. Everything that
+| writes to a remote asks first, and the question names the remote.
 |
 | Common commands
 |   envoy run code-push            fast deploy  (alias: push)
@@ -27,7 +30,8 @@
     /*
     | Everything below reads one object, handed over by the project's file. The
     | short names are for the task bodies; nothing is worked out here that the
-    | Config object does not already know how to work out.
+    | Config object does not already know how to work out — which remote the
+    | command line meant included.
     */
 
     if (! $envoy instanceof Vitnasinec\EnvoyConfig\Config) {
@@ -38,7 +42,16 @@
         );
     }
 
-    $remote = $envoy->remote;
+    /*
+    | The remote this run is aimed at: the object, the name that selects it,
+    | and that name as it reads mid-sentence — a project that never named its
+    | one remote calls it "the remote" there.
+    */
+
+    $remote       = $envoy->remote;
+    $remote_name  = $envoy->remoteName;
+    $remote_label = $envoy->remoteLabel();
+
     $local  = $envoy->local;
     $has_db = $envoy->hasDatabase();
     $sqlite = $envoy->isSqlite();
@@ -85,7 +98,7 @@
 @task('status', ['on' => 'remote'])
     set -e
     cd {{ $remote->path }}
-    echo "## {{ $remote->ssh }}:{{ $remote->path }}"
+    echo "## {{ $remote_name }} — {{ $remote->ssh }}:{{ $remote->path }}"
     git rev-parse --abbrev-ref HEAD
     git log -1 --oneline
     git status --porcelain
@@ -116,16 +129,16 @@
 @task('git-pull', ['on' => 'remote'])
     set -e
     cd {{ $remote->path }}
-    echo "## Checking out {{ $local->branch }} on the remote and pulling"
+    echo "## Checking out {{ $local->branch }} on {{ $remote_label }} and pulling"
     git fetch --quiet
     git checkout {{ $local->branch }} --quiet
     git pull --quiet
 @endtask
 
-@task('git-reset', ['on' => 'remote', 'confirm' => true])
+@task('git-reset', ['on' => 'remote', 'confirm' => $envoy->confirm('Discard local commits and hard reset to origin')])
     set -e
     cd {{ $remote->path }}
-    echo "## Discarding local commits on the remote and resetting to origin"
+    echo "## Discarding local commits on {{ $remote_label }} and resetting to origin"
     git fetch --quiet
     git checkout {{ $local->branch }} --quiet
     git reset --hard "origin/{{ $local->branch }}" --quiet
@@ -141,23 +154,23 @@
 @task('composer-install', ['on' => 'remote'])
     set -e
     cd {{ $remote->path }}
-    echo "## Installing composer dependencies"
+    echo "## Installing composer dependencies on {{ $remote_label }}"
     {{ $remote->composer }} install --no-progress --no-interaction --no-dev --prefer-dist --optimize-autoloader
 @endtask
 
 @task('npm-build', ['on' => 'remote'])
     set -e
     cd {{ $remote->path }}
-    echo "## Building assets"
+    echo "## Building assets on {{ $remote_label }}"
     {{ $remote->npm }} ci --silent || {{ $remote->npm }} install --silent
     {{ $remote->npm }} run --silent build
 @endtask
 
 @if ($has_db)
-@task('migrate', ['on' => 'remote', 'confirm' => true])
+@task('migrate', ['on' => 'remote', 'confirm' => $envoy->confirm('Migrate the database')])
     set -e
     cd {{ $remote->path }}
-    echo "## Migrating the remote database"
+    echo "## Migrating the {{ $remote_name }} database"
     {{ $remote->php }} artisan migrate --force --ansi
 @endtask
 @endif
@@ -178,13 +191,17 @@
 |--------------------------------------------------------------------------
 | Database — dump / transfer / import
 |--------------------------------------------------------------------------
-| A project can have no database at all — db: left off both environments —
+| A project can have no database at all — db: left off every environment —
 | and then none of these tasks is defined, and the two stories say so instead.
 |
 | An end marked readOnly: true is the same idea, one end at a time: nothing
 | that imports, drops or rebuilds that database is defined, and its story
 | refuses. Dumping and downloading read it and are left alone, and so is the
 | deploy migration, which is the only thing that still writes to it.
+|
+| Read-only is per remote, so which of these tasks exists depends on the
+| remote the flag chose — on a read-only prod and a writable dev, db-push is
+| refused with --prod and runs with --dev.
 --}}
 
 @if ($has_db)
@@ -192,7 +209,7 @@
 @task('db-dump', ['on' => 'remote'])
     set -e
     mkdir -p {{ $remote->dumps }}
-    echo "## Dumping remote database {{ $remote->db->database }}"
+    echo "## Dumping the {{ $remote_name }} database {{ $remote->db->database }}"
     MYSQL_PWD='{{ $remote->db->password }}' mysqldump \
         {{ $remote->db->connectFlags() }} \
         {{ $dump_flags }} \
@@ -218,7 +235,7 @@
 @task('db-download', ['on' => 'local'])
     set -e
     mkdir -p {{ $local->dumps }}
-    echo "## Downloading dump from the remote"
+    echo "## Downloading the dump from {{ $remote_label }}"
     scp {{ $scp_flag }} {{ $remote->ssh }}:{{ $remote->dumps }}/{{ $dump_latest }} {{ $local->dumps }}/{{ $dump_latest }}
     cp {{ $local->dumps }}/{{ $dump_latest }} {{ $local->dumps }}/{{ $dump_stamp }}
 @endtask
@@ -232,7 +249,7 @@
         echo "##   run 'envoy run db-pull' first, or 'envoy run db-dump-local'"
         exit 1
     fi
-    echo "## Uploading {{ $dump_latest }} to the remote"
+    echo "## Uploading {{ $dump_latest }} to {{ $remote_label }}"
     ssh {{ $ssh_flag }} {{ $remote->ssh }} "mkdir -p {{ $remote->dumps }}"
     scp {{ $scp_flag }} {{ $local->dumps }}/{{ $dump_latest }} {{ $remote->ssh }}:{{ $remote->dumps }}/{{ $dump_latest }}
 @endtask
@@ -260,12 +277,12 @@
 @if ($write_remote)
 
 {{--
-| Drops and rebuilds the remote database, then imports the dump--latest.sql
-| already sitting there — the one the last db-push uploaded. It uploads
-| nothing itself, and it always confirms.
+| Drops and rebuilds the chosen remote's database, then imports the
+| dump--latest.sql already sitting there — the one the last db-push uploaded.
+| It uploads nothing itself, and it always confirms, by name.
 --}}
 
-@task('db-import-remote', ['on' => 'remote', 'confirm' => true])
+@task('db-import-remote', ['on' => 'remote', 'confirm' => $envoy->confirm('Drop the database, rebuild it from migrations and import the dump')])
     set -e
     cd {{ $remote->path }}
     if [ ! -f {{ $remote->dumps }}/{{ $dump_latest }} ]; then
@@ -273,7 +290,7 @@
         echo "##   run 'envoy run db-push' to send one, or 'envoy run db-upload' on its own"
         exit 1
     fi
-    echo "## Rebuilding the remote schema and importing {{ $dump_latest }}"
+    echo "## Rebuilding the {{ $remote_name }} schema and importing {{ $dump_latest }}"
     {{ $remote->php }} artisan migrate:fresh --drop-views --force --quiet
     MYSQL_PWD='{{ $remote->db->password }}' mysql \
         {{ $remote->db->connectFlags() }} \
@@ -289,7 +306,7 @@
 @if ($write_local)
 @task('db-pull-sqlite', ['on' => 'local'])
     set -e
-    echo "## Downloading the remote sqlite database"
+    echo "## Downloading the sqlite database from {{ $remote_label }}"
     rsync {{ $rsync_opts }} --backup --suffix=.bak \
         {{ $remote->ssh }}:{{ $remote->db->database }} \
         {{ $local->db->database }}
@@ -297,9 +314,9 @@
 @endif
 
 @if ($write_remote)
-@task('db-push-sqlite', ['on' => 'local', 'confirm' => true])
+@task('db-push-sqlite', ['on' => 'local', 'confirm' => $envoy->confirm('Overwrite the sqlite database')])
     set -e
-    echo "## Uploading local sqlite database to the remote"
+    echo "## Uploading the local sqlite database to {{ $remote_label }}"
     rsync {{ $rsync_opts }} --backup --suffix=.bak \
         {{ $local->db->database }} \
         {{ $remote->ssh }}:{{ $remote->db->database }}
@@ -318,7 +335,7 @@
 
 @if (! $write_remote)
 @task('db-remote-read-only', ['on' => 'local'])
-    echo "## The remote database {{ $remote->db->database }} is read-only, so nothing may be written into it."
+    echo "## The {{ $remote_name }} database {{ $remote->db->database }} is read-only, so nothing may be written into it."
     echo '##   only the deploy migration writes to it; drop readOnly: true to allow the rest'
     exit 1
 @endtask
@@ -328,7 +345,7 @@
 
 @task('db-not-configured', ['on' => 'local'])
     echo "## This project has no database, so there is nothing to do."
-    echo '##   give db: to both environments in Envoy.blade.php to add one'
+    echo '##   give db: to every environment in Envoy.blade.php to add one'
 @endtask
 
 @endif
@@ -337,9 +354,10 @@
 |--------------------------------------------------------------------------
 | Storage
 |--------------------------------------------------------------------------
-| No flag reaches in here. The two lists on the Config object are the whole
-| story: what moves, which way, and whether the far end mirrors deletions is
-| decided in the project's file and nowhere else.
+| No path flag reaches in here. The two lists on the Config object are the
+| whole story: what moves, which way, and whether the far end mirrors
+| deletions is decided in the project's file and nowhere else. Which remote
+| it moves to or from is the only thing the command line decides.
 --}}
 
 @task('storage-pull', ['on' => 'local'])
@@ -348,7 +366,7 @@
     echo '## Nothing is declared to pull — see the pull: list in Envoy.blade.php'
 @endif
 @foreach ($envoy->pull as $e)
-    echo "## remote:{{ $e->path }} -> local"
+    echo "## {{ $remote_name }}:{{ $e->path }} -> local"
     mkdir -p {{ $local->path }}/{{ $e->path }}
     rsync {{ $rsync_opts }} {{ $e->rsyncFlags() }} \
         {{ $remote->ssh }}:{{ $remote->path }}/{{ $e->path }}/ \
@@ -356,13 +374,13 @@
 @endforeach
 @endtask
 
-@task('storage-push', ['on' => 'local', 'confirm' => true])
+@task('storage-push', ['on' => 'local', 'confirm' => $envoy->confirm('Push every declared directory')])
     set -e
 @if (! $envoy->push)
     echo '## Nothing is declared to push — see the push: list in Envoy.blade.php'
 @endif
 @foreach ($envoy->push as $e)
-    echo "## local:{{ $e->path }} -> remote"
+    echo "## local:{{ $e->path }} -> {{ $remote_name }}"
     ssh {{ $ssh_flag }} {{ $remote->ssh }} "mkdir -p {{ $remote->path }}/{{ $e->path }}"
     rsync {{ $rsync_opts }} {{ $e->rsyncFlags() }} \
         {{ $local->path }}/{{ $e->path }}/ \
@@ -419,7 +437,7 @@
 
 {{--
 | An alias for the command typed the most. A story is only a list of names,
-| so it carries every flag straight through: push --force is code-push --force.
+| so it carries every flag straight through: push --prod is code-push --prod.
 --}}
 
 @story('push')

@@ -7,7 +7,7 @@ namespace Vitnasinec\EnvoyConfig;
 use RuntimeException;
 
 /**
- * One end of the map — the remote, or here.
+ * One end of the map — a remote, or here.
  *
  * Every value on it is spliced into a shell command, or decides whether one
  * runs at all, so it is a typed property rather than an array key: a mistyped
