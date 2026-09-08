@@ -39,6 +39,9 @@
         | php       absolute paths for hosts that don't have them on PATH, e.g.
         | composer  php: '/opt/alt/php83/usr/bin/php'
         | npm       composer: 'php ~/code/bin/composer'
+        | build     whether deploy and code-push build assets there. Off unless
+        |           set, so a project with a front-end build says so once, here,
+        |           and no flag overrides it for a run
         | db        the database there — and which kind of project this is. A
         |           plain name is MySQL; a path ending in .sqlite makes it a
         |           SQLite project, and then db-pull and db-push transfer that
@@ -59,6 +62,7 @@
             php: 'php',
             composer: 'composer',
             npm: 'npm',
+            build: true,
             db: new Database(
                 database: 'example_db',
                 host: '127.0.0.1',
@@ -104,14 +108,6 @@
         push: [
             // new SyncDir('public/uploads', delete: true),
         ],
-
-        /*
-        | Whether deploy and code-push build assets on the server. False for a
-        | project with no front-end build, or one that commits built assets;
-        | --build / --nobuild override it for a single run.
-        */
-
-        build: true,
 
         /*
         | Tables whose data is never carried between environments. The default

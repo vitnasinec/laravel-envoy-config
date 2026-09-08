@@ -7,7 +7,7 @@ namespace Vitnasinec\EnvoyConfig;
 use RuntimeException;
 
 /**
- * The whole configuration — two environments, two mirror lists, one flag.
+ * The whole configuration — two environments and two mirror lists.
  *
  * The project's Envoy.blade.php builds one of these and imports the tasks; the
  * tasks read nothing but this object. Anything derived — whether a project is
@@ -45,7 +45,6 @@ final class Config
     /**
      * @param  list<SyncDir>  $pull   directories that move remote -> local
      * @param  list<SyncDir>  $push   directories that move local -> remote
-     * @param  bool  $build           whether deploy and code-push build assets on the server
      * @param  list<string>  $ignoreTables
      */
     public function __construct(
@@ -53,7 +52,6 @@ final class Config
         public readonly Environment $local,
         public readonly array $pull = [],
         public readonly array $push = [],
-        public readonly bool $build = true,
         public readonly array $ignoreTables = self::IGNORE_TABLES,
     ) {
         $this->validate();

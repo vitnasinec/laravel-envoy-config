@@ -48,7 +48,7 @@ Updating is `composer update vitnasinec/laravel-envoy-config` — the project's
 ## Config
 
 Everything is one `Config` object in the project's `Envoy.blade.php`, above the
-`@import` line. Two environments, two mirror lists, one flag.
+`@import` line. Two environments and two mirror lists.
 
 ```php
 $envoy = new Config(
@@ -61,6 +61,7 @@ $envoy = new Config(
         php: 'php',                              // absolute paths for hosts that lack them on PATH,
         composer: 'composer',                    //   e.g. '/opt/alt/php83/usr/bin/php'
         npm: 'npm',                              //   or  'php ~/code/bin/composer'
+        build: true,                             // build assets there on deploy / code-push
         db: new Database(
             database: 'example_db',
             host: '127.0.0.1',
@@ -78,13 +79,18 @@ $envoy = new Config(
     ),
     pull: [new SyncDir('storage/app')],
     push: [],
-    build: true,
 );
 ```
 
 `Environment::local()` works `path`, `dumps` and `branch` out from where the
 project sits and which branch you are on, so the local end is just its
 database. Pass any of them explicitly to override.
+
+`build` belongs to the end that does the building, so it sits on the remote
+next to the `npm` that runs it. It is **off by default** — a project with a
+front-end build says `build: true` once, in the file, and `deploy` and
+`code-push` run `npm-build` from then on. There is no flag that turns it on or
+off for a single run; `envoy run npm-build` is there for the one-off.
 
 `database` says which kind of project this is, so there is no separate switch
 for it. A plain name is MySQL. A path ending in `.sqlite` is SQLite — `db-pull`
@@ -101,7 +107,6 @@ mismatch is a typo, not a transfer, and the file refuses to run.
 | Setting | |
 |---|---|
 | `pull:` `push:` | which directories move, and which way — see [below](#which-way-does-the-data-go) |
-| `build:` | whether `deploy` and `code-push` build on the server; `false` for projects with no front-end build, or that commit built assets. `--build` / `--nobuild` override it for one run |
 | `ignoreTables:` | tables whose data is never carried between environments. Defaults to `Config::IGNORE_TABLES` — migrations, cache, sessions, queues, telescope, pulse. Extend it rather than replacing it: `[...Config::IGNORE_TABLES, 'audits']` |
 
 `branch` matters more than it looks: `db-import` checks that branch out locally
@@ -113,7 +118,7 @@ to build the right schema before importing, then puts you back.
 
 | Command | Does |
 |---|---|
-| `code-push` (`push`) | **Fast deploy.** down → `git push` → remote checks out *your* branch and pulls → build → `optimize` → up. No composer install, no migrations — that is the point of it. Your local branch never moves; the remote is moved to match it. |
+| `code-push` (`push`) | **Fast deploy.** down → `git push` → remote checks out *your* branch and pulls → build, if the remote's `build:` says so → `optimize` → up. No composer install, no migrations — that is the point of it. Your local branch never moves; the remote is moved to match it. |
 | `code-push --force` | Same, but `git add -A` + `commit --amend` + `push --force-with-lease`, and the remote hard-resets to origin. The iterate-on-a-server-only-bug loop. Confirms before the reset. |
 | `deploy` | **Full deploy.** Everything `code-push` does, plus `composer install --no-dev --optimize-autoloader` and `migrate` between the pull and the build. The migration confirms. |
 
@@ -206,7 +211,6 @@ decide once, in the file, where the next person can read it.
 |---|---|
 | `--force` | on `code-push` / `deploy`: amend + force-push, hard-reset the remote |
 | `--dry` | rsync dry run with `--itemize-changes` |
-| `--build` / `--nobuild` | force or skip `npm-build` in `code-push` / `deploy` |
 | `--noconfirm` | answer every confirmation in advance, for unattended runs |
 
 Envoy stops parsing its own options at the first one it doesn't know, so put

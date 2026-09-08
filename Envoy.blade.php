@@ -42,13 +42,6 @@
     $local  = $envoy->local;
     $sqlite = $envoy->isSqlite();
 
-    /* --build / --nobuild override the setting for a single run. */
-
-    $build_assets = $envoy->build;
-
-    if (isset($build))   $build_assets = true;
-    if (isset($nobuild)) $build_assets = false;
-
     /*
     | Everything that writes to the remote confirms first. --noconfirm answers
     | it in advance, for a run nobody is sitting in front of.
@@ -348,7 +341,7 @@
     git-push
     git-pull
 @endif
-@if ($build_assets)
+@if ($remote->build)
     npm-build
 @endif
     optimize
@@ -366,7 +359,7 @@
 @endif
     composer-install
     migrate
-@if ($build_assets)
+@if ($remote->build)
     npm-build
 @endif
     optimize

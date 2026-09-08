@@ -9,12 +9,17 @@ use RuntimeException;
 /**
  * One end of the map — the remote, or here.
  *
- * Every value on it is spliced into a shell command, so it is a typed property
- * rather than an array key: a mistyped key arrives at rsync as an empty source,
- * a mistyped property is a fatal error before anything runs.
+ * Every value on it is spliced into a shell command, or decides whether one
+ * runs at all, so it is a typed property rather than an array key: a mistyped
+ * key arrives at rsync as an empty source, a mistyped property is a fatal
+ * error before anything runs.
  */
 final class Environment
 {
+    /**
+     * @param  bool  $build  whether deploy and code-push build assets on this end
+     *                       — off unless the project says otherwise
+     */
     public function __construct(
         public readonly string $path,
         public readonly string $dumps,
@@ -25,6 +30,7 @@ final class Environment
         public readonly string $php = 'php',
         public readonly string $composer = 'composer',
         public readonly string $npm = 'npm',
+        public readonly bool $build = false,
     ) {
     }
 
