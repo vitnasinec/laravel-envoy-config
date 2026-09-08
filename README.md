@@ -2,13 +2,18 @@
 
 One Envoy setup for every project. The tasks live in `vendor` and update with
 composer; the project keeps a single **Config object** — the remote or remotes,
-the local database, which directories mirror — and imports the rest.
+the local database, which directories mirror with each remote — and imports the
+rest.
 
 ```php
 $envoy = new Config(
-    remote: new Environment(ssh: 'me@example.com', path: '~/code/stage1', ...),
-    local:  Environment::local(db: new Database('example_db', ...)),
-    pull:   [new SyncDir('storage/app')],
+    remote: new Environment(
+        ssh: 'me@example.com',
+        path: '~/code/stage1',
+        storagePull: [new SyncDir('storage/app')],
+        ...
+    ),
+    local: Environment::local(db: new Database('example_db', ...)),
 );
 ```
 
@@ -43,6 +48,7 @@ Updating is `composer update vitnasinec/laravel-envoy-config` — the project's
 | Environments | `local`, and one remote — or several, one chosen per run |
 | Command names | `<subject>-<verb>`: `code-push`, `db-pull`, `storage-sync` |
 | Direction | **pull = remote → local**, **push = local → remote**, same as git |
+| What mirrors | declared on the remote it mirrors with, so each remote has its own directions |
 | Target | one remote takes no flag; several take one on every command, and there is no default |
 | Writes to the remote | always confirm first, and the question names the remote |
 | Read-only databases | `readOnly: true` on an end, and nothing that writes to it is defined |
@@ -52,7 +58,7 @@ Updating is `composer update vitnasinec/laravel-envoy-config` — the project's
 ## Config
 
 Everything is one `Config` object in the project's `Envoy.blade.php`, above the
-`@import` line. The environments and two mirror lists.
+`@import` line. The environments, and — on each remote — what mirrors with it.
 
 ```php
 $envoy = new Config(
@@ -66,6 +72,8 @@ $envoy = new Config(
         composer: 'composer',                    //   e.g. '/opt/alt/php83/usr/bin/php'
         npm: 'npm',                              //   or  'php ~/code/bin/composer'
         build: true,                             // build assets there on deploy / code-push
+        storagePull: [new SyncDir('storage/app')],   // comes down from this remote
+        storagePush: [],                             // goes up to it
         db: new Database(
             database: 'example_db',
             host: '127.0.0.1',
@@ -81,14 +89,14 @@ $envoy = new Config(
             password: Env::get('DB_PASSWORD'),
         ),
     ),
-    pull: [new SyncDir('storage/app')],
-    push: [],
 );
 ```
 
 `Environment::local()` works `path`, `dumps` and `branch` out from where the
 project sits and which branch you are on, so the local end is just its
-database. Pass any of them explicitly to override.
+database. Pass any of them explicitly to override. It takes no mirror lists:
+they say what moves between a remote and here, so they live on the remote — see
+[Which way does the data go?](#which-way-does-the-data-go).
 
 `build` belongs to the end that does the building, so it sits on the remote
 next to the `npm` that runs it. It is **off by default** — a project with a
@@ -122,6 +130,7 @@ remote: [
         branch: 'main',
         dumps: '~/code/temp',
         build: true,
+        storagePull: [new SyncDir('storage/app')],
         db: new Database(
             database: 'example_prod',
             username: Env::get('PROD_DB_USERNAME'),
@@ -134,6 +143,7 @@ remote: [
         path: '~/code/dev',
         branch: 'develop',
         dumps: '~/code/temp',
+        storagePush: [new SyncDir('storage/app')],
         db: new Database(
             database: 'example_dev',
             username: Env::get('DEV_DB_USERNAME'),
@@ -168,8 +178,10 @@ asks first, and with several remotes the question names the one it is about —
 Names are lowercase, and become `--flags`, so they cannot be one Envoy already
 uses (`--pretend`, `--continue`, `--force`, `--dry`, …). Everything else is
 **per remote**: its own `branch`, `port`, `build:`, `db:` and `readOnly:`, its
-own credentials in `.env`. A read-only `prod` beside a writable `dev` is two
-entries and nothing more — `db-push --prod` refuses, `db-push --dev` runs.
+own `storagePull:` and `storagePush:`, its own credentials in `.env`. A
+read-only `prod` beside a writable `dev` is two entries and nothing more —
+`db-push --prod` refuses, `db-push --dev` runs, and the example above sends
+`storage-sync --prod` down and `storage-sync --dev` up.
 
 One remote is not a choice, so it takes no flag and nothing above applies. A
 single *named* remote (`remote: ['staging' => ...]`) is still one remote and
@@ -213,9 +225,13 @@ else to say:
 
 ```php
 $envoy = new Config(
-    remote: new Environment(ssh: 'me@example.com', path: '~/code/stage1', branch: 'main'),
-    local:  Environment::local(),
-    pull:   [new SyncDir('storage/app')],
+    remote: new Environment(
+        ssh: 'me@example.com',
+        path: '~/code/stage1',
+        branch: 'main',
+        storagePull: [new SyncDir('storage/app')],
+    ),
+    local: Environment::local(),
 );
 ```
 
@@ -233,7 +249,7 @@ flag would have picked.
 
 | Setting | |
 |---|---|
-| `pull:` `push:` | which directories move, and which way — see [below](#which-way-does-the-data-go) |
+| `storagePull:` `storagePush:` | on each remote: which directories move between it and here, and which way — see [below](#which-way-does-the-data-go) |
 | `ignoreTables:` | tables whose data is never carried between environments. Defaults to `Config::IGNORE_TABLES` — migrations, cache, sessions, queues, telescope, pulse. Extend it rather than replacing it: `[...Config::IGNORE_TABLES, 'audits']` |
 
 `branch` matters more than it looks: `db-import` checks that branch out locally
@@ -282,13 +298,14 @@ keeping a `.bak` at the destination. Nothing else changes.
 
 | Command | Does |
 |---|---|
-| `storage-pull` | rsyncs every directory in `pull:`, remote → local. |
-| `storage-push` | rsyncs every directory in `push:`, local → remote. Always confirms. |
-| `storage-sync` | Both declared directions in one run. |
+| `storage-pull` | rsyncs every directory in that remote's `storagePull:`, remote → local. |
+| `storage-push` | rsyncs every directory in that remote's `storagePush:`, local → remote. Always confirms. |
+| `storage-sync` | Whichever of the two that remote declares, in one run. |
 
-There is no ad-hoc path flag. What moves is whatever the two lists in the file
-name, so a one-off transfer is an edit to the list, not a flag at the keyboard.
-Which remote it moves to or from is the one thing the keyboard decides:
+There is no ad-hoc path flag. What moves is whatever the chosen remote's two
+lists name, so a one-off transfer is an edit to the list, not a flag at the
+keyboard. Which remote is the one thing the keyboard decides — and since the
+lists belong to it, that settles the direction too:
 
 ```sh
 envoy run storage-pull
@@ -296,6 +313,9 @@ envoy run storage-push
 envoy run storage-sync --dry
 envoy run storage-pull --prod        # when there is more than one remote
 ```
+
+A remote that declares neither list moves nothing, and says so rather than
+failing.
 
 ### Building blocks
 
@@ -307,28 +327,44 @@ and the ones that write to a `readOnly:` end are not defined at all.
 
 ## Which way does the data go?
 
-Different per project, and permanently so — on some, users edit the server and
+Different per remote, and permanently so — on some, users edit the server and
 you mirror it down; on others you author locally and publish upward; on plenty
-it's a mix. That belongs in the file, not in your head. Write it down once:
+it's a mix. That belongs in the file, not in your head, and it belongs on the
+**remote it is about**, because the same project answers differently for `prod`
+and for `dev`. Write it down once, per remote:
 
 ```php
-pull: [
-    new SyncDir('storage/media'),
-],
+'prod' => new Environment(
+    // ...
+    storagePull: [
+        new SyncDir('storage/media'),
+    ],
+),
 
-push: [
-    new SyncDir('storage/app', delete: true),
-],
+'dev' => new Environment(
+    // ...
+    storagePush: [
+        new SyncDir('storage/app', delete: true),
+    ],
+),
 ```
 
-Every storage command reads those two lists: `storage-pull` pulls what the
-first names, `storage-push` pushes what the second names, and `storage-sync`
-does both in one run. Paths are project-relative, one directory per entry.
-**Anything not listed is never touched in either direction.**
+Every storage command reads the two lists on the remote it was aimed at:
+`storage-pull` pulls what `storagePull:` names, `storage-push` pushes what
+`storagePush:` names, and `storage-sync` does whichever of the two that remote
+declares. So `storage-sync --prod` above brings `storage/media` down and sends
+nothing up, and `storage-sync --dev` sends `storage/app` up and brings nothing
+down — each remote can only be asked for the direction it declares. Paths are
+project-relative, one directory per entry. **Anything not listed is never
+touched in either direction.**
 
 Nothing is assumed anywhere: there is no built-in directory behind any of it,
-and no flag adds one, so with both lists empty `storage-pull` / `storage-push`
-move nothing at all. Files move where you said so and nowhere else.
+and no flag adds one, so a remote with both lists empty moves nothing at all.
+Files move where you said so and nowhere else.
+
+`Environment::local()` takes neither list — they describe what moves *between*
+a remote and here, so putting them on the local end would name directories
+nothing ever reads, and the file refuses to run instead.
 
 The database has no such list — `db-pull` and `db-push` say the direction in
 their own name, so run the one you mean.
@@ -339,7 +375,7 @@ their own name, so run the one you mean.
 that entry alone. It is **off by default in both directions** — it deletes
 files at the far end that were never here, which is rarely what you meant. Put
 it on the one entry that needs it, as above, where `storage/app` is authored
-locally and the server should mirror it exactly. There is no flag that turns
+locally and `dev` should mirror it exactly. There is no flag that turns
 mirroring on for a run: a command that deletes files at the far end is one you
 decide once, in the file, where the next person can read it.
 
@@ -382,7 +418,7 @@ shared tasks use (`$remote`, `$local`) are local to the imported file:
 | `stubs/Envoy.blade.php` | what you copy into a project: the config block, and the import |
 | `Envoy.blade.php` | the tasks and stories, imported from `vendor` and never edited |
 | `src/Config.php` | the whole configuration, plus everything derived from it |
-| `src/Environment.php` | one end of the map, and the ssh / scp / rsync spellings of its port |
+| `src/Environment.php` | one end of the map — its paths, its build, what mirrors with it, and the ssh / scp / rsync spellings of its port |
 | `src/CommandLine.php` | the arguments Envoy was called with, read for which remote a command means |
 | `src/Database.php` | one database, whether it is a MySQL schema or a SQLite file, and whether anything may be written into it — `null` on the environments of a project that has none |
 | `src/SyncDir.php` | one directory that mirrors |

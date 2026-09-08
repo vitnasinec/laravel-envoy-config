@@ -7,7 +7,7 @@ namespace Vitnasinec\EnvoyConfig;
 use RuntimeException;
 
 /**
- * The whole configuration — the remotes, this end, and two mirror lists.
+ * The whole configuration — the remotes, and this end.
  *
  * The project's Envoy.blade.php builds one of these and imports the tasks; the
  * tasks read nothing but this object. Anything derived — which remote the
@@ -75,15 +75,11 @@ final class Config
     /**
      * @param  Environment|array<string, Environment>  $remote  one remote, or several
      *                                                          under the names that select them
-     * @param  list<SyncDir>  $pull   directories that move remote -> local
-     * @param  list<SyncDir>  $push   directories that move local -> remote
      * @param  list<string>  $ignoreTables
      */
     public function __construct(
         Environment|array $remote,
         public readonly Environment $local,
-        public readonly array $pull = [],
-        public readonly array $push = [],
         public readonly array $ignoreTables = self::IGNORE_TABLES,
     ) {
         $this->remotes = $remote instanceof Environment
@@ -288,13 +284,18 @@ final class Config
             $this->validateRemote($name, $remote);
         }
 
-        foreach ([...$this->pull, ...$this->push] as $dir) {
-            if (! $dir instanceof SyncDir) {
-                throw new RuntimeException(
-                    'Envoy: the pull and push lists take SyncDir objects, e.g. '
-                    ."new SyncDir('storage/app')."
-                );
-            }
+        /*
+        | The mirror lists say what moves between a remote and here, so they
+        | only mean anything on a remote. On local they would name directories
+        | nothing ever reads, which is worse than a refusal.
+        */
+
+        if ($this->local->storagePull !== [] || $this->local->storagePush !== []) {
+            throw new RuntimeException(
+                'Envoy: storagePull: and storagePush: belong on a remote, not on local — '
+                .'they say which directories move between that remote and here. Move them '
+                .'to the Environment for the remote they mirror with.'
+            );
         }
     }
 
@@ -317,6 +318,15 @@ final class Config
                 'Envoy: the remote '.$name.' has no ssh address. Set ssh: to user@host, '
                 .'or to the bare host when ~/.ssh/config knows the user.'
             );
+        }
+
+        foreach ([...$remote->storagePull, ...$remote->storagePush] as $dir) {
+            if (! $dir instanceof SyncDir) {
+                throw new RuntimeException(
+                    'Envoy: the storagePull: and storagePush: lists on '.$name.' take '
+                    ."SyncDir objects, e.g. new SyncDir('storage/app')."
+                );
+            }
         }
     }
 

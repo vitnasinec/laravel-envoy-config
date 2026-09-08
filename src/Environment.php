@@ -13,6 +13,10 @@ use RuntimeException;
  * runs at all, so it is a typed property rather than an array key: a mistyped
  * key arrives at rsync as an empty source, a mistyped property is a fatal
  * error before anything runs.
+ *
+ * Which directories mirror lives here too, on the remote they mirror with,
+ * because the answer is per remote: the same project can take prod's uploads
+ * down and publish its fixtures up to dev.
  */
 final class Environment
 {
@@ -25,6 +29,8 @@ final class Environment
      *                          same as forcing 22 — set it only to override
      * @param  bool  $build  whether deploy and code-push build assets on this end
      *                       — off unless the project says otherwise
+     * @param  list<SyncDir>  $storagePull  directories that move this remote -> local
+     * @param  list<SyncDir>  $storagePush  directories that move local -> this remote
      */
     public function __construct(
         public readonly string $path,
@@ -37,13 +43,17 @@ final class Environment
         public readonly string $composer = 'composer',
         public readonly string $npm = 'npm',
         public readonly bool $build = false,
+        public readonly array $storagePull = [],
+        public readonly array $storagePush = [],
     ) {
     }
 
     /**
      * Here. Nothing is ever ssh'd to this end, so the ssh fields keep their
      * defaults, the paths come from where the project sits, and the branch is
-     * whichever one you are on right now.
+     * whichever one you are on right now. There are no mirror lists either:
+     * they say what moves between a remote and here, so they belong on the
+     * remote.
      */
     public static function local(
         ?Database $db = null,

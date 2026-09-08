@@ -10,8 +10,8 @@
 |   envoy run code-push            fast deploy  (alias: push)
 |   envoy run deploy               full deploy — composer install and migrate too
 |   envoy run db-pull              remote database down to local
-|   envoy run storage-pull         every declared directory, remote -> local
-|   envoy run storage-sync         every declared directory, both ways
+|   envoy run storage-pull         every directory that remote declares, down
+|   envoy run storage-sync         every direction that remote declares
 |
 | Project-specific tasks go at the bottom, after the import.
 |
@@ -31,39 +31,44 @@
         /*
         | The remote — usually the one server there is.
         |
-        | ssh       user@host, or the bare host when ~/.ssh/config knows the user
-        | port      left out, ssh reads the port from ~/.ssh/config; a number
-        |           here overrides that, which is not the same as 22
-        | path      project root on the server
-        | branch    the branch the server runs — db-import borrows it to build
-        |           the right schema before importing
-        | dumps     where dumps are written there; leave it out on a project
-        |           with no database, or a SQLite one, since neither dumps
-        | php       absolute paths for hosts that don't have them on PATH, e.g.
-        | composer  php: '/opt/alt/php83/usr/bin/php'
-        | npm       composer: 'php ~/code/bin/composer'
-        | build     whether deploy and code-push build assets there. Off unless
-        |           set, so a project with a front-end build says so once, here,
-        |           and no flag overrides it for a run
-        | db        the database there — and which kind of project this is. A
-        |           plain name is MySQL; a path ending in .sqlite makes it a
-        |           SQLite project, and then db-pull and db-push transfer that
-        |           file instead of dumping:
+        | ssh          user@host, or the bare host when ~/.ssh/config knows the
+        |              user
+        | port         left out, ssh reads the port from ~/.ssh/config; a number
+        |              here overrides that, which is not the same as 22
+        | path         project root on the server
+        | branch       the branch the server runs — db-import borrows it to build
+        |              the right schema before importing
+        | dumps        where dumps are written there; leave it out on a project
+        |              with no database, or a SQLite one, since neither dumps
+        | php          absolute paths for hosts that don't have them on PATH, e.g.
+        | composer     php: '/opt/alt/php83/usr/bin/php'
+        | npm          composer: 'php ~/code/bin/composer'
+        | build        whether deploy and code-push build assets there. Off unless
+        |              set, so a project with a front-end build says so once, here,
+        |              and no flag overrides it for a run
+        | storagePull  which directories come down from this remote, and which go
+        | storagePush  up to it — spelled out below, where they sit. Every remote
+        |              answers for itself, so the same project can take prod's
+        |              uploads down and publish its own fixtures up to dev
+        | db           the database there — and which kind of project this is. A
+        |              plain name is MySQL; a path ending in .sqlite makes it a
+        |              SQLite project, and then db-pull and db-push transfer that
+        |              file instead of dumping:
         |
-        |               db: new Database('~/code/stage1/database/database.sqlite'),
+        |                  db: new Database('~/code/stage1/database/database.sqlite'),
         |
-        |           Leave db: off every environment on a project that has no
-        |           database — a static site, a front end, anything that only
-        |           ever ships code. Then no database task exists at all, and
-        |           deploy skips the migration.
+        |              Leave db: off every environment on a project that has no
+        |              database — a static site, a front end, anything that only
+        |              ever ships code. Then no database task exists at all, and
+        |              deploy skips the migration.
         |
-        |           readOnly: true on an end marks a database nothing may be
-        |           written into by hand. Nothing that imports, drops or
-        |           rebuilds it is defined, and the story pointed that way
-        |           refuses; deploy's migration is the only thing left that
-        |           writes to it. Off unless set:
+        |              readOnly: true on an end marks a database nothing may be
+        |              written into by hand. Nothing that imports, drops or
+        |              rebuilds it is defined, and the story pointed that way
+        |              refuses; deploy's migration is the only thing left that
+        |              writes to it. Off unless set:
         |
-        |               db: new Database('example_db', readOnly: true, ...),
+        |                  db: new Database('example_db', readOnly: true, ...),
         |
         | The usernames and passwords are the only thing read from .env, because
         | this file is committed and they are not.
@@ -73,8 +78,9 @@
         | command then has to say which one it means: envoy run deploy --prod.
         | There is no default and no last-used, because a default is how a
         | deploy meant for dev arrives on prod. Everything else is per remote —
-        | its own branch, port, build:, db:, readOnly: — so a read-only prod and
-        | a writable dev are two entries and nothing more:
+        | its own branch, port, build:, db:, readOnly:, and its own two mirror
+        | lists — so a read-only prod you take files down from and a dev you
+        | publish up to are two entries and nothing more:
         |
         |     remote: [
         |         'prod' => new Environment(
@@ -83,6 +89,7 @@
         |             branch: 'main',
         |             dumps: '~/code/temp',
         |             build: true,
+        |             storagePull: [new SyncDir('storage/app')],
         |             db: new Database(
         |                 database: 'example_prod',
         |                 username: Env::get('PROD_DB_USERNAME'),
@@ -95,6 +102,7 @@
         |             path: '~/code/dev',
         |             branch: 'develop',
         |             dumps: '~/code/temp',
+        |             storagePush: [new SyncDir('storage/app')],
         |             db: new Database(
         |                 database: 'example_dev',
         |                 username: Env::get('DEV_DB_USERNAME'),
@@ -102,6 +110,11 @@
         |             ),
         |         ),
         |     ],
+        |
+        | That pair is the whole of what storage-sync does: run it against prod
+        | and it brings storage/app down, run it against dev and it sends the
+        | local one up. Neither remote can be asked for the other's direction,
+        | because neither declares it.
         |
         | Give each its own credentials in .env — the prefix is yours to pick,
         | but naming it after the remote is the one that stays readable.
@@ -116,6 +129,29 @@
             composer: 'composer',
             npm: 'npm',
             build: true,
+
+            /*
+            | Which directories move between this remote and here, and which
+            | way. Which files a project mirrors is permanent per remote, so
+            | it is written down here rather than remembered at the keyboard:
+            | these two lists are the only thing the storage commands read.
+            | Paths are project-relative, anything not listed is never touched
+            | in either direction, and with both lists empty they move nothing
+            | at all. Which remote is the one thing left to the command line —
+            | and it settles the direction too, since the lists are its own.
+            |
+            | delete: true makes the destination an exact mirror, which deletes
+            | files at the far end that were never here. Off unless asked for.
+            */
+
+            storagePull: [
+                new SyncDir('storage/app'),
+            ],
+
+            storagePush: [
+                // new SyncDir('public/uploads', delete: true),
+            ],
+
             db: new Database(
                 database: 'example_db',
                 host: '127.0.0.1',
@@ -138,7 +174,9 @@
         |     local: Environment::local(),
         |
         | readOnly: true works here too, and then db-pull refuses instead of
-        | db-push — the local database is never imported into either.
+        | db-push — the local database is never imported into either. The
+        | mirror lists are not set here either: they say what moves between a
+        | remote and here, so they live on the remote.
         */
 
         local: Environment::local(
@@ -148,27 +186,6 @@
                 password: Env::get('DB_PASSWORD'),
             ),
         ),
-
-        /*
-        | Which directories move, and which way. Which files a project mirrors
-        | is permanent per project, so it is written down here rather than
-        | remembered at the keyboard: these two lists are the only thing the
-        | storage commands read. Paths are project-relative, anything not
-        | listed is never touched in either direction, and with both lists
-        | empty they move nothing at all. Which remote they move to or from is
-        | the one thing left to the command line.
-        |
-        | delete: true makes the destination an exact mirror, which deletes
-        | files at the far end that were never here. Off unless asked for.
-        */
-
-        pull: [
-            new SyncDir('storage/app'),
-        ],
-
-        push: [
-            // new SyncDir('public/uploads', delete: true),
-        ],
 
         /*
         | Tables whose data is never carried between environments. The default

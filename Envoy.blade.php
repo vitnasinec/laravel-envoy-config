@@ -11,6 +11,10 @@
 | Environments   local, and one remote — or several, one chosen per run
 | Direction      push = local -> remote,  pull = remote -> local
 |
+| Which directories mirror, and which way, is declared per remote — a project
+| can take prod's uploads down and publish its own up to dev — so the storage
+| commands read the lists on the remote the flag chose, and no others.
+|
 | A project with one remote has nothing to choose, so no command takes a flag.
 | A project with several — prod and dev — names them, and then every command
 | says which one it means: --prod, --dev. There is no default remote, because
@@ -21,8 +25,8 @@
 |   envoy run code-push            fast deploy  (alias: push)
 |   envoy run deploy               full deploy — composer install and migrate too
 |   envoy run db-pull              remote database down to local
-|   envoy run storage-pull         every declared directory, remote -> local
-|   envoy run storage-sync         every declared directory, both ways
+|   envoy run storage-pull         every directory that remote declares, down
+|   envoy run storage-sync         every direction that remote declares
 |
 --}}
 
@@ -60,6 +64,15 @@
 
     $write_remote = $envoy->canWriteRemote();
     $write_local  = $envoy->canWriteLocal();
+
+    /*
+    | What mirrors with this remote, and which way. Both lists hang off the
+    | remote, so storage-sync on a prod that only declares storagePull pulls
+    | and nothing else, and on a dev that only declares storagePush pushes.
+    */
+
+    $storage_pull = $remote->storagePull;
+    $storage_push = $remote->storagePush;
 
     /* Transfer helpers — one place that knows about non-standard SSH ports. */
 
@@ -354,18 +367,19 @@
 |--------------------------------------------------------------------------
 | Storage
 |--------------------------------------------------------------------------
-| No path flag reaches in here. The two lists on the Config object are the
-| whole story: what moves, which way, and whether the far end mirrors
-| deletions is decided in the project's file and nowhere else. Which remote
-| it moves to or from is the only thing the command line decides.
+| No path flag reaches in here. The chosen remote's two lists are the whole
+| story: what moves, which way, and whether the far end mirrors deletions is
+| decided in the project's file and nowhere else. Which remote it moves to or
+| from is the only thing the command line decides — and, because the lists
+| hang off that remote, the direction is decided along with it.
 --}}
 
 @task('storage-pull', ['on' => 'local'])
     set -e
-@if (! $envoy->pull)
-    echo '## Nothing is declared to pull — see the pull: list in Envoy.blade.php'
+@if (! $storage_pull)
+    echo "## Nothing is declared to pull from {{ $remote_label }} — see its storagePull: list"
 @endif
-@foreach ($envoy->pull as $e)
+@foreach ($storage_pull as $e)
     echo "## {{ $remote_name }}:{{ $e->path }} -> local"
     mkdir -p {{ $local->path }}/{{ $e->path }}
     rsync {{ $rsync_opts }} {{ $e->rsyncFlags() }} \
@@ -376,10 +390,10 @@
 
 @task('storage-push', ['on' => 'local', 'confirm' => $envoy->confirm('Push every declared directory')])
     set -e
-@if (! $envoy->push)
-    echo '## Nothing is declared to push — see the push: list in Envoy.blade.php'
+@if (! $storage_push)
+    echo "## Nothing is declared to push to {{ $remote_label }} — see its storagePush: list"
 @endif
-@foreach ($envoy->push as $e)
+@foreach ($storage_push as $e)
     echo "## local:{{ $e->path }} -> {{ $remote_name }}"
     ssh {{ $ssh_flag }} {{ $remote->ssh }} "mkdir -p {{ $remote->path }}/{{ $e->path }}"
     rsync {{ $rsync_opts }} {{ $e->rsyncFlags() }} \
@@ -389,8 +403,8 @@
 @endtask
 
 @task('storage-nothing-declared', ['on' => 'local'])
-    echo "## No directories are declared, so there is nothing to do."
-    echo '##   e.g. pull: [new SyncDir("storage/app/public")],'
+    echo "## No directories are declared on {{ $remote_label }}, so there is nothing to do."
+    echo '##   e.g. storagePull: [new SyncDir("storage/app/public")],'
 @endtask
 
 {{--
@@ -485,13 +499,13 @@
 --}}
 
 @story('storage-sync')
-@if (! $envoy->pull && ! $envoy->push)
+@if (! $storage_pull && ! $storage_push)
     storage-nothing-declared
 @endif
-@if ($envoy->pull)
+@if ($storage_pull)
     storage-pull
 @endif
-@if ($envoy->push)
+@if ($storage_push)
     storage-push
 @endif
 @endstory
