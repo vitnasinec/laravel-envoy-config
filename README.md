@@ -41,7 +41,7 @@ Updating is `composer update vitnasinec/laravel-envoy-config` — the project's
 | Command names | `<subject>-<verb>`: `code-push`, `db-pull`, `storage-sync` |
 | Direction | **pull = remote → local**, **push = local → remote**, same as git |
 | Target | there is only one remote, so no command takes a target flag |
-| Writes to the remote | always confirm first; `--noconfirm` answers in advance |
+| Writes to the remote | always confirm first |
 | Configuration | one object, in the project's file, no indirection |
 | Secrets | the database usernames and passwords, from `.env`, and nothing else |
 
@@ -211,7 +211,6 @@ decide once, in the file, where the next person can read it.
 |---|---|
 | `--force` | on `code-push` / `deploy`: amend + force-push, hard-reset the remote |
 | `--dry` | rsync dry run with `--itemize-changes` |
-| `--noconfirm` | answer every confirmation in advance, for unattended runs |
 
 Envoy stops parsing its own options at the first one it doesn't know, so put
 `--pretend` and `--continue` *before* any of the above.

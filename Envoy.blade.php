@@ -12,7 +12,7 @@
 | Direction      push = local -> remote,  pull = remote -> local
 |
 | There is no server to choose, so no command takes a target flag. Everything
-| that writes to the remote asks first; --noconfirm answers for scripts.
+| that writes to the remote asks first.
 |
 | Common commands
 |   envoy run code-push            fast deploy  (alias: push)
@@ -41,13 +41,6 @@
     $remote = $envoy->remote;
     $local  = $envoy->local;
     $sqlite = $envoy->isSqlite();
-
-    /*
-    | Everything that writes to the remote confirms first. --noconfirm answers
-    | it in advance, for a run nobody is sitting in front of.
-    */
-
-    $confirm = fn (bool $when = true) => $when && ! isset($noconfirm);
 
     /* Transfer helpers — one place that knows about non-standard SSH ports. */
 
@@ -123,7 +116,7 @@
     git pull --quiet
 @endtask
 
-@task('git-reset', ['on' => 'remote', 'confirm' => $confirm()])
+@task('git-reset', ['on' => 'remote', 'confirm' => true])
     set -e
     cd {{ $remote->path }}
     echo "## Discarding local commits on the remote and resetting to origin"
@@ -154,7 +147,7 @@
     {{ $remote->npm }} run --silent build
 @endtask
 
-@task('migrate', ['on' => 'remote', 'confirm' => $confirm()])
+@task('migrate', ['on' => 'remote', 'confirm' => true])
     set -e
     cd {{ $remote->path }}
     echo "## Migrating the remote database"
@@ -227,7 +220,7 @@
     scp {{ $scp_flag }} {{ $local->dumps }}/{{ $dump_latest }} {{ $remote->ssh }}:{{ $remote->dumps }}/{{ $dump_latest }}
 @endtask
 
-@task('db-import', ['on' => 'local', 'confirm' => $confirm()])
+@task('db-import', ['on' => 'local', 'confirm' => true])
     set -e
     cd {{ $local->path }}
     echo "## Rebuilding local schema from migrations on {{ $remote->branch }}"
@@ -249,7 +242,7 @@
 | nothing itself, and it always confirms.
 --}}
 
-@task('db-import-remote', ['on' => 'remote', 'confirm' => $confirm()])
+@task('db-import-remote', ['on' => 'remote', 'confirm' => true])
     set -e
     cd {{ $remote->path }}
     if [ ! -f {{ $remote->dumps }}/{{ $dump_latest }} ]; then
@@ -276,7 +269,7 @@
         {{ $local->db->database }}
 @endtask
 
-@task('db-push-sqlite', ['on' => 'local', 'confirm' => $confirm()])
+@task('db-push-sqlite', ['on' => 'local', 'confirm' => true])
     set -e
     echo "## Uploading local sqlite database to the remote"
     rsync {{ $rsync_opts }} --backup --suffix=.bak \
@@ -307,7 +300,7 @@
 @endforeach
 @endtask
 
-@task('storage-push', ['on' => 'local', 'confirm' => $confirm()])
+@task('storage-push', ['on' => 'local', 'confirm' => true])
     set -e
 @if (! $envoy->push)
     echo '## Nothing is declared to push — see the push: list in Envoy.blade.php'
