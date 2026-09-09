@@ -168,15 +168,18 @@
 
         /*
         | Here. Nothing is ever ssh'd to this end, so there is nothing to say
-        | about it but the database: the path is where this file sits, and the
-        | branch is whichever one you are on right now. Its database has to be
-        | the same kind as every
-        | remote's — all names, all .sqlite paths, or no db: anywhere — because
-        | there is no transfer between two different kinds.
+        | about it but the path, the branch and the database — all three
+        | written out, the same as on a remote: path is this project's root,
+        | branch is the one you work on. Its database has to be the same kind
+        | as every remote's — all names, all .sqlite paths, or no db: anywhere
+        | — because there is no transfer between two different kinds.
         |
-        | With no database it is the whole line:
+        | With no database those two lines are the whole of it:
         |
-        |     local: Environment::local(),
+        |     local: new Environment(
+        |         path: '/Users/me/Sites/example',
+        |         branch: 'main',
+        |     ),
         |
         | readOnly: true works here too, and then db-pull refuses instead of
         | db-push — the local database is never imported into either. The
@@ -184,7 +187,9 @@
         | remote and here, so they live on the remote.
         */
 
-        local: Environment::local(
+        local: new Environment(
+            path: __DIR__,
+            branch: 'main',
             db: new Database(
                 database: 'example_db',
                 username: Env::get('DB_USERNAME'),

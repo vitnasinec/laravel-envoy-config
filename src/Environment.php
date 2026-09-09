@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Vitnasinec\EnvoyConfig;
 
-use RuntimeException;
-
 /**
  * One end of the map — a remote, or here.
  *
@@ -46,33 +44,6 @@ final class Environment
     }
 
     /**
-     * Here. Nothing is ever ssh'd to this end, so the ssh fields keep their
-     * defaults, the paths come from where the project sits, and the branch is
-     * whichever one you are on right now. There are no mirror lists either:
-     * they say what moves between a remote and here, so they belong on the
-     * remote.
-     */
-    public static function local(
-        ?Database $db = null,
-        ?string $path = null,
-        ?string $branch = null,
-        string $php = 'php',
-        string $composer = 'composer',
-        string $npm = 'npm',
-    ): self {
-        $path ??= (string) getcwd();
-
-        return new self(
-            path: $path,
-            branch: $branch ?? self::currentBranch($path),
-            db: $db,
-            php: $php,
-            composer: $composer,
-            npm: $npm,
-        );
-    }
-
-    /**
      * Where dumps are written at this end, as one path everything else can use.
      *
      * The directory is configured on the Database, since only a database ever
@@ -110,22 +81,5 @@ final class Environment
     public function rsyncShell(): string
     {
         return $this->port === null ? '' : "-e 'ssh -p {$this->port}'";
-    }
-
-    private static function currentBranch(string $path): string
-    {
-        $branch = trim((string) shell_exec(
-            'git -C '.escapeshellarg($path).' branch --show-current 2>/dev/null'
-        ));
-
-        if ($branch === '') {
-            throw new RuntimeException(
-                'Envoy: cannot tell which branch is checked out in '.$path.'. Pass '
-                .'branch: to Environment::local() if this is not a git working copy, '
-                .'or check out a branch if HEAD is detached.'
-            );
-        }
-
-        return $branch;
     }
 }

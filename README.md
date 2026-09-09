@@ -13,7 +13,7 @@ $envoy = new Config(
         storagePull: [new Storage('storage/app')],
         ...
     ),
-    local: Environment::local(db: new Database('example_db', ...)),
+    local: new Environment(path: '/Users/me/Sites/example', branch: 'main', db: ...),
 );
 ```
 
@@ -79,7 +79,9 @@ $envoy = new Config(
             dumps: './storage/envoy',                // where dumps are written there; the default
         ),
     ),
-    local: Environment::local(
+    local: new Environment(
+        path: '/Users/me/Sites/example',          // this project's root, here
+        branch: 'main',                           // the branch you work on
         db: new Database(
             database: 'example_db',
             username: Env::get('DB_USERNAME'),
@@ -89,10 +91,12 @@ $envoy = new Config(
 );
 ```
 
-`Environment::local()` works `path` and `branch` out from where the project
-sits and which branch you are on, so the local end is just its database. Pass
-either explicitly to override. It takes no mirror lists: they say what moves
-between a remote and here, so they live on the remote — see
+The local end is an `Environment` like any other, and says the same things in
+the same words: `path` is this project's root on your machine, `branch` the one
+you work on. Both are written out rather than worked out, so the file says what
+it will do wherever it runs from. Nothing is ever ssh'd here, so `ssh:` and
+`port:` go unused, and there are no mirror lists: they say what moves between a
+remote and here, so they live on the remote — see
 [Which way does the data go?](#which-way-does-the-data-go).
 
 `build` belongs to the end that does the building, so it sits on the remote
@@ -226,7 +230,10 @@ $envoy = new Config(
         branch: 'main',
         storagePull: [new Storage('storage/app')],
     ),
-    local: Environment::local(),
+    local: new Environment(
+        path: '/Users/me/Sites/example',
+        branch: 'main',
+    ),
 );
 ```
 
@@ -386,9 +393,9 @@ Nothing is assumed anywhere: there is no built-in directory behind any of it,
 and no flag adds one, so a remote with both lists empty moves nothing at all.
 Files move where you said so and nowhere else.
 
-`Environment::local()` takes neither list — they describe what moves *between*
-a remote and here, so putting them on the local end would name directories
-nothing ever reads, and the file refuses to run instead.
+The local end takes neither list — they describe what moves *between* a remote
+and here, so putting them on the local end would name directories nothing ever
+reads, and the file refuses to run instead.
 
 The database has no such list — `db-pull` and `db-push` say the direction in
 their own name, so run the one you mean.
