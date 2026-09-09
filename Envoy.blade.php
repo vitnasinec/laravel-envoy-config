@@ -80,10 +80,12 @@
     $scp_flag   = $remote->scpFlag();
     $rsync_opts = $envoy->rsyncOpts(isset($dry));
 
-    /* Database. One timestamp for the whole run, not one per task. */
+    /*
+    | Database. A dump directory holds two dumps and no more, and the shell
+    | that keeps it that way is $envoy->rotateDumps() — see the section below.
+    */
 
     $dump_latest = Vitnasinec\EnvoyConfig\Config::DUMP_LATEST;
-    $dump_stamp  = $envoy->dumpStamp();
     $dump_flags  = Vitnasinec\EnvoyConfig\Config::DUMP_FLAGS;
 @endsetup
 
@@ -215,42 +217,45 @@
 | Read-only is per remote, so which of these tasks exists depends on the
 | remote the flag chose — on a read-only prod and a writable dev, db-push is
 | refused with --prod and runs with --dev.
+|
+| A dump directory keeps two dumps: dump--latest.sql, and dump--previous.sql,
+| which is the dump that was the latest one until now. Everything that writes
+| a dump rotates the directory first — the latest becomes the previous, and
+| every other dump there is deleted — so there is always one dump to fall back
+| to and never a directory of them to clear out by hand.
 --}}
 
 @if ($has_db)
 
 @task('db-dump', ['on' => 'remote'])
     set -e
-    mkdir -p {{ $remote->dumps }}
+    {{ $envoy->rotateDumps($remote->dumps) }}
     echo "## Dumping the {{ $remote_name }} database {{ $remote->db->database }}"
     MYSQL_PWD='{{ $remote->db->password }}' mysqldump \
         {{ $remote->db->connectFlags() }} \
         {{ $dump_flags }} \
         {{ $envoy->ignoreFlags($remote->db) }} \
         {{ $remote->db->database }} > {{ $remote->dumps }}/{{ $dump_latest }}
-    cp {{ $remote->dumps }}/{{ $dump_latest }} {{ $remote->dumps }}/{{ $dump_stamp }}
-    ls -lh {{ $remote->dumps }}/{{ $dump_latest }}
+    ls -lh {{ $remote->dumps }}/dump--*.sql
 @endtask
 
 @task('db-dump-local', ['on' => 'local'])
     set -e
-    mkdir -p {{ $local->dumps }}
+    {{ $envoy->rotateDumps($local->dumps) }}
     echo "## Dumping local database {{ $local->db->database }}"
     MYSQL_PWD='{{ $local->db->password }}' mysqldump \
         {{ $local->db->connectFlags() }} \
         {{ $dump_flags }} \
         {{ $envoy->ignoreFlags($local->db) }} \
         {{ $local->db->database }} > {{ $local->dumps }}/{{ $dump_latest }}
-    cp {{ $local->dumps }}/{{ $dump_latest }} {{ $local->dumps }}/{{ $dump_stamp }}
-    ls -lh {{ $local->dumps }}/{{ $dump_latest }}
+    ls -lh {{ $local->dumps }}/dump--*.sql
 @endtask
 
 @task('db-download', ['on' => 'local'])
     set -e
-    mkdir -p {{ $local->dumps }}
+    {{ $envoy->rotateDumps($local->dumps) }}
     echo "## Downloading the dump from {{ $remote_label }}"
     scp {{ $scp_flag }} {{ $remote->ssh }}:{{ $remote->dumps }}/{{ $dump_latest }} {{ $local->dumps }}/{{ $dump_latest }}
-    cp {{ $local->dumps }}/{{ $dump_latest }} {{ $local->dumps }}/{{ $dump_stamp }}
 @endtask
 
 {{-- Sends the dump you already have. It never reaches for a fresher one. --}}
@@ -263,7 +268,7 @@
         exit 1
     fi
     echo "## Uploading {{ $dump_latest }} to {{ $remote_label }}"
-    ssh {{ $ssh_flag }} {{ $remote->ssh }} "mkdir -p {{ $remote->dumps }}"
+    ssh {{ $ssh_flag }} {{ $remote->ssh }} "{{ $envoy->rotateDumps($remote->dumps) }}"
     scp {{ $scp_flag }} {{ $local->dumps }}/{{ $dump_latest }} {{ $remote->ssh }}:{{ $remote->dumps }}/{{ $dump_latest }}
 @endtask
 

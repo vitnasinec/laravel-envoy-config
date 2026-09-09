@@ -43,6 +43,9 @@ final class Config
 
     public const DUMP_LATEST = 'dump--latest.sql';
 
+    /** The dump before that one, and the rest of the history a dump dir keeps. */
+    public const DUMP_PREVIOUS = 'dump--previous.sql';
+
     /** What a lone remote is called when the project never named it. */
     public const DEFAULT_REMOTE = 'remote';
 
@@ -171,10 +174,29 @@ final class Config
         ])));
     }
 
-    /** A second copy of every dump, kept under the time it was taken. */
-    public function dumpStamp(): string
+    /**
+     * Make room in a dump directory for the dump about to be written into it:
+     * the dump sitting there now becomes the backup, and every other dump in
+     * the directory goes. Two is the whole history a dump directory keeps —
+     * the dump just taken, and the one before it — so it stays the same size
+     * for ever instead of growing until someone remembers to empty it.
+     *
+     * This is shell rather than a task of its own because every one of the
+     * four things that writes a dump has to do it first — dumping either end,
+     * downloading one, uploading one — and two of those happen over ssh, at
+     * the far end, where a local task could not reach.
+     */
+    public function rotateDumps(string $dir): string
     {
-        return 'dump--'.date('Ymd-His').'.sql';
+        $latest = $dir.'/'.self::DUMP_LATEST;
+        $previous = $dir.'/'.self::DUMP_PREVIOUS;
+
+        return implode("\n", [
+            'mkdir -p '.$dir,
+            'if [ -f '.$latest.' ]; then mv -f '.$latest.' '.$previous.'; fi',
+            'find '.$dir." -maxdepth 1 -type f -name 'dump--*.sql'"
+                .' -not -name '.self::DUMP_LATEST.' -not -name '.self::DUMP_PREVIOUS.' -delete',
+        ]);
     }
 
     public function ignoreFlags(Database $db): string

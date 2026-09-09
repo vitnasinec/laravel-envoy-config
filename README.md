@@ -272,7 +272,7 @@ to build the right schema before importing, then puts you back.
 
 | Command | Does |
 |---|---|
-| `db-dump` | Dumps the remote database into its dump dir — `dump--latest.sql` plus a timestamped copy. Downloads nothing, writes nothing. |
+| `db-dump` | Dumps the remote database into its dump dir, as `dump--latest.sql`. Downloads nothing, writes nothing. |
 | `db-import` | Imports your local `storage/envoy/dump--latest.sql` into your **local** database: checkout the remote's branch → `migrate:fresh` → import → back to your branch → `migrate`. |
 | `db-import-remote` | Drops and rebuilds the remote database, then imports the `dump--latest.sql` already sitting there — the one the last `db-push` uploaded. Uploads nothing; errors if the remote has no dump. |
 | `db-pull` | remote → local, end to end: `db-dump` → download → `db-import`. |
@@ -282,6 +282,14 @@ Everything that changes the remote confirms first — `db-import-remote`,
 `db-push-sqlite`, `storage-push`, `migrate`, `git-reset`. `db-import-remote` runs
 `migrate:fresh` against the remote database, so it is the one to read twice
 before answering. `db-upload` only drops a file in the dump dir, so it doesn't ask.
+
+A dump directory keeps **two** dumps: `dump--latest.sql`, and
+`dump--previous.sql`, which is the dump that was the latest one until now.
+Everything that writes a dump rotates the directory first — the latest becomes
+the previous, and every other dump there is deleted — so there is always one
+dump to fall back to, at either end, and never a directory of them to clear out
+by hand. That is `db-dump`, `db-dump-local`, `db-download` and `db-upload`, each
+rotating the end it writes to.
 
 On a project with no database none of these tasks exists, and `db-pull` /
 `db-push` say so — see [No database](#no-database). An end marked
