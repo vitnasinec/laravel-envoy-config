@@ -60,6 +60,15 @@
     $has_db = $envoy->hasDatabase();
     $sqlite = $envoy->isSqlite();
 
+    /*
+    | The branch this working copy is on, asked of git rather than declared:
+    | it is wherever you are standing right now, and the code tasks move a
+    | remote onto it. The far end is never assumed to be anywhere — db-import
+    | is the only task that cares, and it asks over ssh when it runs.
+    */
+
+    $local_branch = $envoy->localBranch();
+
     /* A read-only database is one nothing may be written into by hand. */
 
     $write_remote = $envoy->canWriteRemote();
@@ -127,13 +136,13 @@
 
 @task('git-push', ['on' => 'local'])
     set -e
-    echo "## Pushing {{ $local->branch }} to origin"
+    echo "## Pushing {{ $local_branch }} to origin"
     git push --quiet
 @endtask
 
 @task('git-repush', ['on' => 'local'])
     set -e
-    echo "## Amending last commit on {{ $local->branch }} and force pushing"
+    echo "## Amending last commit on {{ $local_branch }} and force pushing"
     git add -A
     git commit --amend --no-edit --quiet
     git push --force-with-lease --quiet
@@ -144,9 +153,9 @@
 @task('git-pull', ['on' => 'remote'])
     set -e
     cd {{ $remote->path }}
-    echo "## Checking out {{ $local->branch }} on {{ $remote_label }} and pulling"
+    echo "## Checking out {{ $local_branch }} on {{ $remote_label }} and pulling"
     git fetch --quiet
-    git checkout {{ $local->branch }} --quiet
+    git checkout {{ $local_branch }} --quiet
     git pull --quiet
 @endtask
 
@@ -155,8 +164,8 @@
     cd {{ $remote->path }}
     echo "## Discarding local commits on {{ $remote_label }} and resetting to origin"
     git fetch --quiet
-    git checkout {{ $local->branch }} --quiet
-    git reset --hard "origin/{{ $local->branch }}" --quiet
+    git checkout {{ $local_branch }} --quiet
+    git reset --hard "origin/{{ $local_branch }}" --quiet
     chmod 644 public/index.php
 @endtask
 
@@ -283,15 +292,21 @@
 @task('db-import', ['on' => 'local', 'confirm' => true])
     set -e
     cd {{ $local->path }}
-    echo "## Rebuilding local schema from migrations on {{ $remote->branch }}"
-    git checkout {{ $remote->branch }} --quiet
+    remote_branch=$(ssh {{ $ssh_flag }} {{ $remote->ssh }} "cd {{ $remote->path }} && git rev-parse --abbrev-ref HEAD")
+    if [ "$remote_branch" = HEAD ]; then
+        echo "## {{ $remote_label }} is on a detached HEAD, so there is no branch to build the schema from"
+        echo "##   check one out there, or run 'envoy run git-pull' to put it back on yours"
+        exit 1
+    fi
+    echo "## Rebuilding local schema from migrations on $remote_branch, which {{ $remote_label }} is on"
+    git checkout "$remote_branch" --quiet
     {{ $local->php }} artisan migrate:fresh --drop-views --force --quiet
     echo "## Importing {{ $dump_latest }}"
     MYSQL_PWD='{{ $local->db->password }}' mysql \
         {{ $local->db->connectFlags() }} \
         {{ $local->db->database }} < {{ $local->dumps() }}/{{ $dump_latest }}
-    echo "## Back to {{ $local->branch }}, applying newer migrations"
-    git checkout {{ $local->branch }} --quiet
+    echo "## Back to {{ $local_branch }}, applying newer migrations"
+    git checkout {{ $local_branch }} --quiet
     {{ $local->php }} artisan migrate --force --quiet
     {{ $local->php }} artisan optimize:clear --quiet
 @endtask

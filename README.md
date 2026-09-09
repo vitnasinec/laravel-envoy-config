@@ -13,7 +13,7 @@ $envoy = new Config(
         storagePull: [new Storage('storage/app')],
         ...
     ),
-    local: new Environment(path: '/Users/me/Sites/example', branch: 'main', db: ...),
+    local: new Environment(path: '/Users/me/Sites/example', db: ...),
 );
 ```
 
@@ -63,7 +63,6 @@ $envoy = new Config(
         ssh: 'exampleuser@example.pef.czu.cz',   // or the bare host, if ~/.ssh/config knows the user
         port: null,                              // a number only to override ~/.ssh/config's port
         path: '~/code/stage1',                   // project root on the server
-        branch: 'main',                          // the branch the server runs
         php: 'php',                              // absolute paths for hosts that lack them on PATH,
         composer: 'composer',                    //   e.g. '/opt/alt/php83/usr/bin/php'
         npm: 'npm',                              //   or  'php ~/code/bin/composer'
@@ -81,7 +80,6 @@ $envoy = new Config(
     ),
     local: new Environment(
         path: '/Users/me/Sites/example',          // this project's root, here
-        branch: 'main',                           // the branch you work on
         db: new Database(
             database: 'example_db',
             username: Env::get('DB_USERNAME'),
@@ -92,11 +90,11 @@ $envoy = new Config(
 ```
 
 The local end is an `Environment` like any other, and says the same things in
-the same words: `path` is this project's root on your machine, `branch` the one
-you work on. Both are written out rather than worked out, so the file says what
-it will do wherever it runs from. Nothing is ever ssh'd here, so `ssh:` and
-`port:` go unused, and there are no mirror lists: they say what moves between a
-remote and here, so they live on the remote — see
+the same words: `path` is this project's root on your machine, written out
+rather than worked out, so the file says what it will do wherever it runs
+from. No end declares a branch — see [Branches](#branches). Nothing is ever
+ssh'd here, so `ssh:` and `port:` go unused, and there are no mirror lists:
+they say what moves between a remote and here, so they live on the remote — see
 [Which way does the data go?](#which-way-does-the-data-go).
 
 `build` belongs to the end that does the building, so it sits on the remote
@@ -128,7 +126,6 @@ remote: [
     'prod' => new Environment(
         ssh: 'me@example.com',
         path: '~/code/prod',
-        branch: 'main',
         build: true,
         storagePull: [new Storage('storage/app')],
         db: new Database(
@@ -141,7 +138,6 @@ remote: [
     'dev' => new Environment(
         ssh: 'me@dev.example.com',
         path: '~/code/dev',
-        branch: 'develop',
         storagePush: [new Storage('storage/app')],
         db: new Database(
             database: 'example_dev',
@@ -176,8 +172,8 @@ asks first, and with several remotes the question names the one it is about —
 
 Names are lowercase, and become `--flags`, so they cannot be one Envoy already
 uses (`--pretend`, `--continue`, `--force`, `--dry`, …). Everything else is
-**per remote**: its own `branch`, `port`, `build:`, `db:` and `readOnly:`, its
-own `storagePull:` and `storagePush:`, its own credentials in `.env`. A
+**per remote**: its own `port`, `build:`, `db:` and `readOnly:`, its own
+`storagePull:` and `storagePush:`, its own credentials in `.env`. A
 read-only `prod` beside a writable `dev` is two entries and nothing more —
 `db-push --prod` refuses, `db-push --dev` runs, and the example above sends
 `storage-sync --prod` down and `storage-sync --dev` up.
@@ -227,13 +223,9 @@ $envoy = new Config(
     remote: new Environment(
         ssh: 'me@example.com',
         path: '~/code/stage1',
-        branch: 'main',
         storagePull: [new Storage('storage/app')],
     ),
-    local: new Environment(
-        path: '/Users/me/Sites/example',
-        branch: 'main',
-    ),
+    local: new Environment(path: '/Users/me/Sites/example'),
 );
 ```
 
@@ -253,8 +245,23 @@ of them is checked, whichever the flag would have picked.
 | `storagePull:` `storagePush:` | on each remote: which directories move between it and here, and which way — see [below](#which-way-does-the-data-go) |
 | `ignoreTables:` | tables whose data is never carried between environments. Defaults to `Config::IGNORE_TABLES` — migrations, cache, sessions, queues, telescope, pulse. Extend it rather than replacing it: `[...Config::IGNORE_TABLES, 'audits']` |
 
-`branch` matters more than it looks: `db-import` checks that branch out locally
-to build the right schema before importing, then puts you back.
+### Branches
+
+No environment declares a branch, because a branch is not a decision a project
+makes once — it is wherever you happen to be standing, and it changes several
+times a day. Every task that needs one asks git instead.
+
+Here, that is `git rev-parse` in this working copy, read once when the file
+renders: `code-push` pushes the branch you are on and moves the remote onto
+that same branch, so the two can never disagree. A detached HEAD is refused
+rather than deployed.
+
+At the far end it is the same question asked over ssh, at the moment it
+matters, which is `db-import` and nowhere else: it checks out whatever branch
+that remote is on right now to build the right schema before importing, then
+puts you back. Asking beats declaring there too — a `code-push --dev` leaves
+dev on your feature branch, and a config that still said `develop` would
+rebuild the wrong schema.
 
 ## Commands
 
@@ -457,13 +464,15 @@ shared tasks use (`$remote`, `$local`) are local to the imported file:
 
 ## Notes
 
-- `code-push` moves the *remote* onto your local branch. Your working copy is
-  never checked out from under you — the one exception is `db-import`, which
+- Branches are read from git, never declared — see [Branches](#branches).
+- `code-push` moves the *remote* onto the branch you are on. Your working copy
+  is never checked out from under you — the one exception is `db-import`, which
   borrows the remote's branch to build the right schema and puts you back
   afterwards.
 - Dumps are **data only**, always. `db-import` runs `migrate:fresh` on the
-  remote's branch first, imports, then switches back to your branch and applies
-  newer migrations — so the schema comes from the migrations, never from a dump.
+  branch the remote is on first, imports, then switches back to your branch and
+  applies newer migrations — so the schema comes from the migrations, never
+  from a dump.
 - Passwords go through `MYSQL_PWD`, not `--password=…`, so they don't show up
   in `ps` on a shared host. They are the only thing left in `.env`; if the
   usernames are missing on a MySQL project the file refuses to run, rather than

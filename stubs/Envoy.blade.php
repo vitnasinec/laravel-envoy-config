@@ -33,15 +33,14 @@
         | which one it means: envoy run deploy --prod. There is no default.
         |
         |     remote: [
-        |         'prod' => new Environment(ssh: ..., path: ..., branch: 'main'),
-        |         'dev' => new Environment(ssh: ..., path: ..., branch: 'develop'),
+        |         'prod' => new Environment(ssh: ..., path: ...),
+        |         'dev' => new Environment(ssh: ..., path: ...),
         |     ],
         */
 
         remote: new Environment(
             ssh: 'exampleuser@example.pef.czu.cz',
             path: '~/code/stage1',
-            branch: 'main',
             build: true,
 
             /*
@@ -77,7 +76,6 @@
 
         local: new Environment(
             path: __DIR__,
-            branch: 'main',
             db: new Database(
                 database: 'example_db',
                 username: Env::get('DB_USERNAME'),

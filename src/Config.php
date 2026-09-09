@@ -76,6 +76,13 @@ final class Config
     public readonly Environment $remote;
 
     /**
+     * What git last said this working copy is on. Asking git is a subprocess,
+     * and every task that needs the branch needs the same answer, so it is
+     * asked once.
+     */
+    private ?string $branch = null;
+
+    /**
      * @param  Environment|array<string, Environment>  $remote  one remote, or several
      *                                                          under the names that select them
      * @param  list<string>  $ignoreTables
@@ -100,6 +107,59 @@ final class Config
 
         $this->remoteName = $this->chooseRemote();
         $this->remote = $this->remotes[$this->remoteName];
+    }
+
+    /**
+     * The branch this working copy is on.
+     *
+     * It is read from git rather than declared, because it is not a decision a
+     * project makes once — it is wherever you happen to be standing, and it
+     * changes several times a day. A branch written into the config could only
+     * ever agree with HEAD by luck, and the tasks that use it would then do the
+     * thing it said instead of the thing you meant: `git push` pushes the
+     * branch you are on, so a remote checking out a declared `main` would be
+     * deploying something you never pushed.
+     *
+     * Envoy renders this file here, in this working copy, so here is the one
+     * end git can be asked about directly. What the far end is on is the far
+     * end's business, and db-import asks it over ssh at the moment it matters.
+     */
+    public function localBranch(): string
+    {
+        if ($this->branch !== null) {
+            return $this->branch;
+        }
+
+        $branch = trim((string) shell_exec(
+            'git -C '.escapeshellarg($this->local->path).' rev-parse --abbrev-ref HEAD 2>/dev/null'
+        ));
+
+        if ($branch !== '' && $branch !== 'HEAD') {
+            return $this->branch = $branch;
+        }
+
+        /*
+        | Nothing is about to run — `envoy tasks` is only reading the list — so
+        | no command is about to be handed a branch, and there is nothing to
+        | refuse. The word git itself uses for nowhere in particular renders it.
+        */
+
+        if (! CommandLine::runsATask()) {
+            return $this->branch = 'HEAD';
+        }
+
+        if ($branch === 'HEAD') {
+            throw new RuntimeException(
+                'Envoy: this working copy is on a detached HEAD, and the code commands '
+                .'move a remote onto the branch you are on. Check one out first.'
+            );
+        }
+
+        throw new RuntimeException(
+            'Envoy: git could not say which branch '.$this->local->path.' is on. The '
+            ."path: on local has to be this project's working copy — every code task "
+            .'here is a git command run inside it.'
+        );
     }
 
     /**

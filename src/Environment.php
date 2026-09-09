@@ -30,7 +30,6 @@ final class Environment
      */
     public function __construct(
         public readonly string $path,
-        public readonly string $branch,
         public readonly ?Database $db = null,
         public readonly string $ssh = '',
         public readonly ?int $port = null,
