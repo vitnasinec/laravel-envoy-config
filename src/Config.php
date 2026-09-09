@@ -165,12 +165,28 @@ final class Config
         return $what.' on '.$this->remoteLabel().'?';
     }
 
+    /**
+     * What every rsync in the file is handed. `--itemize-changes` says of every
+     * file both its path and what became of it — `>f+++++++` sent as new,
+     * `>f.s.....` sent over one that was already there, `cd+++++++` a directory
+     * made, `*deleting` one removed at the destination by a `delete: true`
+     * entry — because a transfer that prints nothing is one you cannot tell
+     * from a transfer that did nothing, and a name on its own does not say
+     * whether the far end gained a file or lost one.
+     *
+     * It is this rather than `--info=name` because macOS ships openrsync now,
+     * which has no `--info` at all and would refuse the whole command.
+     *
+     * A dry run is then the same output and no transfer, so --dry adds only
+     * `--dry-run`: it is the reading you would get, taken without moving
+     * anything.
+     */
     public function rsyncOpts(bool $dry = false): string
     {
         return trim(implode(' ', array_filter([
-            '-az --human-readable',
+            '-az --human-readable --itemize-changes',
             $this->remote->rsyncShell(),
-            $dry ? '--dry-run --itemize-changes' : '',
+            $dry ? '--dry-run' : '',
         ])));
     }
 

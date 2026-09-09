@@ -320,6 +320,12 @@ keeping a `.bak` at the destination. Nothing else changes.
 | `storage-push` | rsyncs every directory in that remote's `storagePush:`, local → remote. Always confirms. |
 | `storage-sync` | Whichever of the two that remote declares, in one run. |
 
+Every transfer itemizes what it did, a line per file: the path, and a code for
+what became of it — `>f+++++++` sent as new, `>f.s.....` sent over a file that
+was already there, `cd+++++++` a directory made, `*deleting` a file removed at
+the destination by a `delete: true` entry. A run that printed nothing under a
+heading moved nothing.
+
 There is no ad-hoc path flag. What moves is whatever the chosen remote's two
 lists name, so a one-off transfer is an edit to the list, not a flag at the
 keyboard. Which remote is the one thing the keyboard decides — and since the
@@ -403,7 +409,7 @@ decide once, in the file, where the next person can read it.
 |---|---|
 | `--prod` `--dev` … | which remote the command is for. Named after the remotes in the file, and required on every command as soon as there is more than one |
 | `--force` | on `code-push` / `deploy`: amend + force-push, hard-reset the remote |
-| `--dry` | rsync dry run with `--itemize-changes` |
+| `--dry` | rsync dry run — the same itemized listing as a real run, having moved nothing |
 
 Envoy stops parsing its own options at the first one it doesn't know, so put
 `--pretend`, `--continue` and `--path` *before* any of the above:
