@@ -489,6 +489,13 @@
 @endif
 @endstory
 
+{{--
+| Sends the dump that is already in the local dump directory — it never makes
+| a fresh one, so what lands on the remote is whatever dump--latest.sql you
+| have, from a db-pull or a db-dump-local you ran yourself. Run db-dump-local
+| first when you mean to send the local database as it stands now.
+--}}
+
 @story('db-push')
 @if (! $has_db)
     db-not-configured
@@ -497,7 +504,6 @@
 @elseif ($sqlite)
     db-push-sqlite
 @else
-    db-dump-local
     db-upload
     db-import-remote
 @endif

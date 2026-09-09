@@ -267,15 +267,23 @@ to build the right schema before importing, then puts you back.
 | Command | Does |
 |---|---|
 | `db-dump` | Dumps the remote database into its dump dir, as `dump--latest.sql`. Downloads nothing, writes nothing. |
+| `db-dump-local` | Dumps your local database into your dump dir, as `dump--latest.sql`. Uploads nothing. |
 | `db-import` | Imports your local `dump--latest.sql` into your **local** database: checkout the remote's branch → `migrate:fresh` → import → back to your branch → `migrate`. |
 | `db-import-remote` | Drops and rebuilds the remote database, then imports the `dump--latest.sql` already sitting there — the one the last `db-push` uploaded. Uploads nothing; errors if the remote has no dump. |
 | `db-pull` | remote → local, end to end: `db-dump` → download → `db-import`. |
-| `db-push` | local → remote, end to end: dump local → upload → import on the remote. |
+| `db-push` | local → remote: upload the `dump--latest.sql` you already have → import on the remote. It does **not** dump first — run `db-dump-local` when you mean to send the local database as it stands now. |
 
 Everything that changes the remote confirms first — `db-import-remote`,
 `db-push-sqlite`, `storage-push`, `migrate`, `git-reset`. `db-import-remote` runs
 `migrate:fresh` against the remote database, so it is the one to read twice
 before answering. `db-upload` only drops a file in the dump dir, so it doesn't ask.
+
+Neither `db-push` nor `db-upload` makes a dump — they send whatever
+`dump--latest.sql` is in your dump dir, from a `db-pull` or a `db-dump-local`
+you ran yourself, and error rather than send nothing if there is none. So
+sending the local database as it stands now is two commands, `db-dump-local`
+then `db-push`, and sending a remote's database on to another remote is
+`db-pull --prod` then `db-push --dev`, with no local dump made in between.
 
 Dumps are written to `dumps:` on the database, which defaults to
 `./storage/envoy`. The path is relative, so the one default means that
