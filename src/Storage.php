@@ -7,7 +7,7 @@ namespace Vitnasinec\EnvoyConfig;
 /**
  * One directory that mirrors, and whether the far end mirrors deletions too.
  */
-final class SyncDir
+final class Storage
 {
     public function __construct(
         public readonly string $path,

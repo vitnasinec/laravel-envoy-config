@@ -24,7 +24,7 @@
     use Vitnasinec\EnvoyConfig\Database;
     use Vitnasinec\EnvoyConfig\Env;
     use Vitnasinec\EnvoyConfig\Environment;
-    use Vitnasinec\EnvoyConfig\SyncDir;
+    use Vitnasinec\EnvoyConfig\Storage;
 
     $envoy = new Config(
 
@@ -96,7 +96,7 @@
         |             path: '~/code/prod',
         |             branch: 'main',
         |             build: true,
-        |             storagePull: [new SyncDir('storage/app')],
+        |             storagePull: [new Storage('storage/app')],
         |             db: new Database(
         |                 database: 'example_prod',
         |                 username: Env::get('PROD_DB_USERNAME'),
@@ -108,7 +108,7 @@
         |             ssh: 'exampleuser@dev.pef.czu.cz',
         |             path: '~/code/dev',
         |             branch: 'develop',
-        |             storagePush: [new SyncDir('storage/app')],
+        |             storagePush: [new Storage('storage/app')],
         |             db: new Database(
         |                 database: 'example_dev',
         |                 username: Env::get('DEV_DB_USERNAME'),
@@ -150,11 +150,11 @@
             */
 
             storagePull: [
-                new SyncDir('storage/app'),
+                new Storage('storage/app'),
             ],
 
             storagePush: [
-                // new SyncDir('public/uploads', delete: true),
+                // new Storage('public/uploads', delete: true),
             ],
 
             db: new Database(

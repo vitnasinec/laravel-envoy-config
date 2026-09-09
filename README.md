@@ -10,7 +10,7 @@ $envoy = new Config(
     remote: new Environment(
         ssh: 'me@example.com',
         path: '~/code/stage1',
-        storagePull: [new SyncDir('storage/app')],
+        storagePull: [new Storage('storage/app')],
         ...
     ),
     local: Environment::local(db: new Database('example_db', ...)),
@@ -68,7 +68,7 @@ $envoy = new Config(
         composer: 'composer',                    //   e.g. '/opt/alt/php83/usr/bin/php'
         npm: 'npm',                              //   or  'php ~/code/bin/composer'
         build: true,                             // build assets there on deploy / code-push
-        storagePull: [new SyncDir('storage/app')],   // comes down from this remote
+        storagePull: [new Storage('storage/app')],   // comes down from this remote
         storagePush: [],                             // goes up to it
         db: new Database(
             database: 'example_db',
@@ -126,7 +126,7 @@ remote: [
         path: '~/code/prod',
         branch: 'main',
         build: true,
-        storagePull: [new SyncDir('storage/app')],
+        storagePull: [new Storage('storage/app')],
         db: new Database(
             database: 'example_prod',
             username: Env::get('PROD_DB_USERNAME'),
@@ -138,7 +138,7 @@ remote: [
         ssh: 'me@dev.example.com',
         path: '~/code/dev',
         branch: 'develop',
-        storagePush: [new SyncDir('storage/app')],
+        storagePush: [new Storage('storage/app')],
         db: new Database(
             database: 'example_dev',
             username: Env::get('DEV_DB_USERNAME'),
@@ -224,7 +224,7 @@ $envoy = new Config(
         ssh: 'me@example.com',
         path: '~/code/stage1',
         branch: 'main',
-        storagePull: [new SyncDir('storage/app')],
+        storagePull: [new Storage('storage/app')],
     ),
     local: Environment::local(),
 );
@@ -355,14 +355,14 @@ and for `dev`. Write it down once, per remote:
 'prod' => new Environment(
     // ...
     storagePull: [
-        new SyncDir('storage/media'),
+        new Storage('storage/media'),
     ],
 ),
 
 'dev' => new Environment(
     // ...
     storagePush: [
-        new SyncDir('storage/app', delete: true),
+        new Storage('storage/app', delete: true),
     ],
 ),
 ```
@@ -439,7 +439,7 @@ shared tasks use (`$remote`, `$local`) are local to the imported file:
 | `src/Environment.php` | one end of the map — its paths, its build, what mirrors with it, where its dumps land, and the ssh / scp / rsync spellings of its port |
 | `src/CommandLine.php` | the arguments Envoy was called with, read for which remote a command means |
 | `src/Database.php` | one database, whether it is a MySQL schema or a SQLite file, where its dumps are written, and whether anything may be written into it — `null` on the environments of a project that has none |
-| `src/SyncDir.php` | one directory that mirrors |
+| `src/Storage.php` | one directory that mirrors |
 | `src/Env.php` | the two credential pairs, out of the project's `.env` |
 
 ## Notes

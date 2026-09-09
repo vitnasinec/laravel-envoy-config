@@ -415,7 +415,7 @@
 
 @task('storage-nothing-declared', ['on' => 'local'])
     echo "## No directories are declared on {{ $remote_label }}, so there is nothing to do."
-    echo '##   e.g. storagePull: [new SyncDir("storage/app/public")],'
+    echo '##   e.g. storagePull: [new Storage("storage/app/public")],'
 @endtask
 
 {{--

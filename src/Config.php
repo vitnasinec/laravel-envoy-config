@@ -353,10 +353,10 @@ final class Config
         }
 
         foreach ([...$remote->storagePull, ...$remote->storagePush] as $dir) {
-            if (! $dir instanceof SyncDir) {
+            if (! $dir instanceof Storage) {
                 throw new RuntimeException(
                     'Envoy: the storagePull: and storagePush: lists on '.$name.' take '
-                    ."SyncDir objects, e.g. new SyncDir('storage/app')."
+                    ."Storage objects, e.g. new Storage('storage/app')."
                 );
             }
         }

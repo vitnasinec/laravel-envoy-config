@@ -27,8 +27,8 @@ final class Environment
      *                          same as forcing 22 — set it only to override
      * @param  bool  $build  whether deploy and code-push build assets on this end
      *                       — off unless the project says otherwise
-     * @param  list<SyncDir>  $storagePull  directories that move this remote -> local
-     * @param  list<SyncDir>  $storagePush  directories that move local -> this remote
+     * @param  list<Storage>  $storagePull  directories that move this remote -> local
+     * @param  list<Storage>  $storagePush  directories that move local -> this remote
      */
     public function __construct(
         public readonly string $path,
