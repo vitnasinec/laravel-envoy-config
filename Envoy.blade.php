@@ -218,6 +218,12 @@
 | remote the flag chose — on a read-only prod and a writable dev, db-push is
 | refused with --prod and runs with --dev.
 |
+| Where dumps are written is set on the database, dumps:, and defaults to
+| ./storage/envoy — relative, so it is that directory under the project root
+| at whichever end is writing, here and on every remote alike. The directory
+| is made when it is first needed, with a .gitignore of its own that ignores
+| everything in it, so no dump is ever committed at either end.
+|
 | A dump directory keeps two dumps: dump--latest.sql, and dump--previous.sql,
 | which is the dump that was the latest one until now. Everything that writes
 | a dump rotates the directory first — the latest becomes the previous, and
@@ -229,47 +235,47 @@
 
 @task('db-dump', ['on' => 'remote'])
     set -e
-    {{ $envoy->rotateDumps($remote->dumps) }}
+    {{ $envoy->rotateDumps($remote->dumps()) }}
     echo "## Dumping the {{ $remote_name }} database {{ $remote->db->database }}"
     MYSQL_PWD='{{ $remote->db->password }}' mysqldump \
         {{ $remote->db->connectFlags() }} \
         {{ $dump_flags }} \
         {{ $envoy->ignoreFlags($remote->db) }} \
-        {{ $remote->db->database }} > {{ $remote->dumps }}/{{ $dump_latest }}
-    ls -lh {{ $remote->dumps }}/dump--*.sql
+        {{ $remote->db->database }} > {{ $remote->dumps() }}/{{ $dump_latest }}
+    ls -lh {{ $remote->dumps() }}/dump--*.sql
 @endtask
 
 @task('db-dump-local', ['on' => 'local'])
     set -e
-    {{ $envoy->rotateDumps($local->dumps) }}
+    {{ $envoy->rotateDumps($local->dumps()) }}
     echo "## Dumping local database {{ $local->db->database }}"
     MYSQL_PWD='{{ $local->db->password }}' mysqldump \
         {{ $local->db->connectFlags() }} \
         {{ $dump_flags }} \
         {{ $envoy->ignoreFlags($local->db) }} \
-        {{ $local->db->database }} > {{ $local->dumps }}/{{ $dump_latest }}
-    ls -lh {{ $local->dumps }}/dump--*.sql
+        {{ $local->db->database }} > {{ $local->dumps() }}/{{ $dump_latest }}
+    ls -lh {{ $local->dumps() }}/dump--*.sql
 @endtask
 
 @task('db-download', ['on' => 'local'])
     set -e
-    {{ $envoy->rotateDumps($local->dumps) }}
+    {{ $envoy->rotateDumps($local->dumps()) }}
     echo "## Downloading the dump from {{ $remote_label }}"
-    scp {{ $scp_flag }} {{ $remote->ssh }}:{{ $remote->dumps }}/{{ $dump_latest }} {{ $local->dumps }}/{{ $dump_latest }}
+    scp {{ $scp_flag }} {{ $remote->ssh }}:{{ $remote->dumps() }}/{{ $dump_latest }} {{ $local->dumps() }}/{{ $dump_latest }}
 @endtask
 
 {{-- Sends the dump you already have. It never reaches for a fresher one. --}}
 
 @task('db-upload', ['on' => 'local'])
     set -e
-    if [ ! -f {{ $local->dumps }}/{{ $dump_latest }} ]; then
-        echo "## No dump at {{ $local->dumps }}/{{ $dump_latest }}"
+    if [ ! -f {{ $local->dumps() }}/{{ $dump_latest }} ]; then
+        echo "## No dump at {{ $local->dumps() }}/{{ $dump_latest }}"
         echo "##   run 'envoy run db-pull' first, or 'envoy run db-dump-local'"
         exit 1
     fi
     echo "## Uploading {{ $dump_latest }} to {{ $remote_label }}"
-    ssh {{ $ssh_flag }} {{ $remote->ssh }} "{{ $envoy->rotateDumps($remote->dumps) }}"
-    scp {{ $scp_flag }} {{ $local->dumps }}/{{ $dump_latest }} {{ $remote->ssh }}:{{ $remote->dumps }}/{{ $dump_latest }}
+    ssh {{ $ssh_flag }} {{ $remote->ssh }} "{{ $envoy->rotateDumps($remote->dumps()) }}"
+    scp {{ $scp_flag }} {{ $local->dumps() }}/{{ $dump_latest }} {{ $remote->ssh }}:{{ $remote->dumps() }}/{{ $dump_latest }}
 @endtask
 
 @if ($write_local)
@@ -283,7 +289,7 @@
     echo "## Importing {{ $dump_latest }}"
     MYSQL_PWD='{{ $local->db->password }}' mysql \
         {{ $local->db->connectFlags() }} \
-        {{ $local->db->database }} < {{ $local->dumps }}/{{ $dump_latest }}
+        {{ $local->db->database }} < {{ $local->dumps() }}/{{ $dump_latest }}
     echo "## Back to {{ $local->branch }}, applying newer migrations"
     git checkout {{ $local->branch }} --quiet
     {{ $local->php }} artisan migrate --force --quiet
@@ -303,8 +309,8 @@
 @task('db-import-remote', ['on' => 'remote', 'confirm' => $envoy->confirm('Drop the database, rebuild it from migrations and import the dump')])
     set -e
     cd {{ $remote->path }}
-    if [ ! -f {{ $remote->dumps }}/{{ $dump_latest }} ]; then
-        echo "## No dump at {{ $remote->dumps }}/{{ $dump_latest }}"
+    if [ ! -f {{ $remote->dumps() }}/{{ $dump_latest }} ]; then
+        echo "## No dump at {{ $remote->dumps() }}/{{ $dump_latest }}"
         echo "##   run 'envoy run db-push' to send one, or 'envoy run db-upload' on its own"
         exit 1
     fi
@@ -312,7 +318,7 @@
     {{ $remote->php }} artisan migrate:fresh --drop-views --force --quiet
     MYSQL_PWD='{{ $remote->db->password }}' mysql \
         {{ $remote->db->connectFlags() }} \
-        {{ $remote->db->database }} < {{ $remote->dumps }}/{{ $dump_latest }}
+        {{ $remote->db->database }} < {{ $remote->dumps() }}/{{ $dump_latest }}
     {{ $remote->php }} artisan migrate --force --quiet
     {{ $remote->php }} artisan optimize:clear --quiet
 @endtask

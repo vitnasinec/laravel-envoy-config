@@ -21,8 +21,6 @@ use RuntimeException;
 final class Environment
 {
     /**
-     * @param  string  $dumps  where dumps are written at this end — needed only
-     *                         by a MySQL project, so it defaults to nowhere
      * @param  Database|null  $db  null when the project has no database at all,
      *                             and then no database task is defined
      * @param  int|null  $port  null defers to ~/.ssh/config, which is not the
@@ -35,7 +33,6 @@ final class Environment
     public function __construct(
         public readonly string $path,
         public readonly string $branch,
-        public readonly string $dumps = '',
         public readonly ?Database $db = null,
         public readonly string $ssh = '',
         public readonly ?int $port = null,
@@ -58,7 +55,6 @@ final class Environment
     public static function local(
         ?Database $db = null,
         ?string $path = null,
-        ?string $dumps = null,
         ?string $branch = null,
         string $php = 'php',
         string $composer = 'composer',
@@ -69,12 +65,33 @@ final class Environment
         return new self(
             path: $path,
             branch: $branch ?? self::currentBranch($path),
-            dumps: $dumps ?? $path.'/storage/envoy',
             db: $db,
             php: $php,
             composer: $composer,
             npm: $npm,
         );
+    }
+
+    /**
+     * Where dumps are written at this end, as one path everything else can use.
+     *
+     * The directory is configured on the Database, since only a database ever
+     * writes one, but it is read here: the default is relative — the same
+     * directory under every project root — and this end is the only thing that
+     * knows which root that is. A path starting with / or ~ was written to say
+     * exactly where, and is left as it is. No database means no dumps, and
+     * nothing that would ask is defined.
+     */
+    public function dumps(): string
+    {
+        $dumps = $this->db?->dumps ?? '';
+
+        if ($dumps === '' || str_starts_with($dumps, '/') || str_starts_with($dumps, '~')) {
+            return $dumps;
+        }
+
+        return rtrim($this->path, '/').'/'
+            .(str_starts_with($dumps, './') ? substr($dumps, 2) : $dumps);
     }
 
     /** `-p 2222`, for ssh. Empty when the port is ssh's own business. */

@@ -176,10 +176,19 @@ final class Config
 
     /**
      * Make room in a dump directory for the dump about to be written into it:
-     * the dump sitting there now becomes the backup, and every other dump in
-     * the directory goes. Two is the whole history a dump directory keeps —
-     * the dump just taken, and the one before it — so it stays the same size
-     * for ever instead of growing until someone remembers to empty it.
+     * the directory is created if it is not there, the dump sitting in it now
+     * becomes the backup, and every other dump in it goes. Two is the whole
+     * history a dump directory keeps — the dump just taken, and the one before
+     * it — so it stays the same size for ever instead of growing until someone
+     * remembers to empty it.
+     *
+     * The directory gets a .gitignore of its own, ignoring everything in
+     * itself, because the default dump directory sits inside the project and a
+     * dump is never committed. It is written at both ends, and rewritten every
+     * time, so the directory arrives ignored rather than waiting for someone to
+     * add a line to the project's .gitignore — on a remote that matters more
+     * than here, since an untracked dump there is what makes a deploy's
+     * checkout fail.
      *
      * This is shell rather than a task of its own because every one of the
      * four things that writes a dump has to do it first — dumping either end,
@@ -193,6 +202,7 @@ final class Config
 
         return implode("\n", [
             'mkdir -p '.$dir,
+            "printf '%s\\n' '*' '!.gitignore' > ".$dir.'/.gitignore',
             'if [ -f '.$latest.' ]; then mv -f '.$latest.' '.$previous.'; fi',
             'find '.$dir." -maxdepth 1 -type f -name 'dump--*.sql'"
                 .' -not -name '.self::DUMP_LATEST.' -not -name '.self::DUMP_PREVIOUS.' -delete',
@@ -379,11 +389,12 @@ final class Config
             );
         }
 
-        if ($remote->dumps === '' || $this->local->dumps === '') {
+        if ($db->dumps === '' || $local->dumps === '') {
             throw new RuntimeException(
                 'Envoy: a MySQL project dumps to a directory, and one of '.$name.' and '
-                .'local has no dumps: path. Set it on every remote; the local end '
-                .'defaults to storage/envoy.'
+                .'local has an empty dumps: path. Leave dumps: off the Database to write '
+                .'them to '.Database::DUMPS.' under that end\'s project root, or give a '
+                .'path of your own.'
             );
         }
     }

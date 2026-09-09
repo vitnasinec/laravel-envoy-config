@@ -38,8 +38,6 @@
         | path         project root on the server
         | branch       the branch the server runs — db-import borrows it to build
         |              the right schema before importing
-        | dumps        where dumps are written there; leave it out on a project
-        |              with no database, or a SQLite one, since neither dumps
         | php          absolute paths for hosts that don't have them on PATH, e.g.
         | composer     php: '/opt/alt/php83/usr/bin/php'
         | npm          composer: 'php ~/code/bin/composer'
@@ -70,6 +68,16 @@
         |
         |                  db: new Database('example_db', readOnly: true, ...),
         |
+        |              dumps: on it says where dumps are written at that end.
+        |              It defaults to ./storage/envoy — relative, so the one
+        |              default means that directory under the project root
+        |              wherever it is read, here and on every remote, and the
+        |              directory is created with a .gitignore of its own that
+        |              keeps every dump out of git. Set it only to write them
+        |              somewhere else; a / or ~ path is taken as written:
+        |
+        |                  db: new Database('example_db', dumps: '~/code/temp', ...),
+        |
         | The usernames and passwords are the only thing read from .env, because
         | this file is committed and they are not.
         |
@@ -87,7 +95,6 @@
         |             ssh: 'exampleuser@example.pef.czu.cz',
         |             path: '~/code/prod',
         |             branch: 'main',
-        |             dumps: '~/code/temp',
         |             build: true,
         |             storagePull: [new SyncDir('storage/app')],
         |             db: new Database(
@@ -101,7 +108,6 @@
         |             ssh: 'exampleuser@dev.pef.czu.cz',
         |             path: '~/code/dev',
         |             branch: 'develop',
-        |             dumps: '~/code/temp',
         |             storagePush: [new SyncDir('storage/app')],
         |             db: new Database(
         |                 database: 'example_dev',
@@ -124,7 +130,6 @@
             ssh: 'exampleuser@example.pef.czu.cz',
             path: '~/code/stage1',
             branch: 'main',
-            dumps: '~/code/temp',
             php: 'php',
             composer: 'composer',
             npm: 'npm',
@@ -163,9 +168,9 @@
 
         /*
         | Here. Nothing is ever ssh'd to this end, so there is nothing to say
-        | about it but the database: the path is where this file sits, the dump
-        | directory is storage/envoy under it, and the branch is whichever one
-        | you are on right now. Its database has to be the same kind as every
+        | about it but the database: the path is where this file sits, and the
+        | branch is whichever one you are on right now. Its database has to be
+        | the same kind as every
         | remote's — all names, all .sqlite paths, or no db: anywhere — because
         | there is no transfer between two different kinds.
         |

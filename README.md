@@ -27,15 +27,12 @@ composer require --dev vitnasinec/laravel-envoy-config
 cp vendor/vitnasinec/laravel-envoy-config/stubs/Envoy.blade.php Envoy.blade.php
 ```
 
-`laravel/envoy` comes with it. Then edit the config block, append the two keys
-from `.env.example` to the project's `.env`, and add the dump directory to
-`.gitignore`:
+`laravel/envoy` comes with it. Then edit the config block and append the two
+keys from `.env.example` to the project's `.env`. The dump directory needs no
+`.gitignore` entry of yours: it is created the first time a dump is written,
+with a `.gitignore` of its own that ignores everything in it.
 
-```
-/storage/envoy
-```
-
-A project with no database needs neither of those last two steps — see
+A project with no database needs no keys at all — see
 [No database](#no-database).
 
 Updating is `composer update vitnasinec/laravel-envoy-config` — the project's
@@ -67,7 +64,6 @@ $envoy = new Config(
         port: null,                              // a number only to override ~/.ssh/config's port
         path: '~/code/stage1',                   // project root on the server
         branch: 'main',                          // the branch the server runs
-        dumps: '~/code/temp',                    // where dumps are written there; only MySQL dumps
         php: 'php',                              // absolute paths for hosts that lack them on PATH,
         composer: 'composer',                    //   e.g. '/opt/alt/php83/usr/bin/php'
         npm: 'npm',                              //   or  'php ~/code/bin/composer'
@@ -80,6 +76,7 @@ $envoy = new Config(
             port: 3306,
             username: Env::get('PROD_DB_USERNAME'),  // .env
             password: Env::get('PROD_DB_PASSWORD'),  // .env
+            dumps: './storage/envoy',                // where dumps are written there; the default
         ),
     ),
     local: Environment::local(
@@ -92,10 +89,10 @@ $envoy = new Config(
 );
 ```
 
-`Environment::local()` works `path`, `dumps` and `branch` out from where the
-project sits and which branch you are on, so the local end is just its
-database. Pass any of them explicitly to override. It takes no mirror lists:
-they say what moves between a remote and here, so they live on the remote — see
+`Environment::local()` works `path` and `branch` out from where the project
+sits and which branch you are on, so the local end is just its database. Pass
+either explicitly to override. It takes no mirror lists: they say what moves
+between a remote and here, so they live on the remote — see
 [Which way does the data go?](#which-way-does-the-data-go).
 
 `build` belongs to the end that does the building, so it sits on the remote
@@ -128,7 +125,6 @@ remote: [
         ssh: 'me@example.com',
         path: '~/code/prod',
         branch: 'main',
-        dumps: '~/code/temp',
         build: true,
         storagePull: [new SyncDir('storage/app')],
         db: new Database(
@@ -142,7 +138,6 @@ remote: [
         ssh: 'me@dev.example.com',
         path: '~/code/dev',
         branch: 'develop',
-        dumps: '~/code/temp',
         storagePush: [new SyncDir('storage/app')],
         db: new Database(
             database: 'example_dev',
@@ -240,12 +235,11 @@ Then not one database task is defined — no `db-dump`, no `db-import`, not even
 plus `composer install`, with the migration left out, and `db-pull` / `db-push`
 say the project has no database and stop. Everything else is unchanged.
 
-`dumps:` exists for MySQL dumps alone, so a project without a database — or a
-SQLite one — leaves it out too. A MySQL project that forgets it is refused
-before anything runs, the same as a missing username. Leaving `db:` on one end
-only is refused as well: there is no transfer between a database and no
-database. With several remotes every one of them is checked, whichever the
-flag would have picked.
+`dumps:` sits on the database, because a dump directory is a fact about
+dumping — an environment with no `db:` never writes one, and a SQLite one
+transfers the file itself. Leaving `db:` on one end only is refused: there is
+no transfer between a database and no database. With several remotes every one
+of them is checked, whichever the flag would have picked.
 
 | Setting | |
 |---|---|
@@ -273,7 +267,7 @@ to build the right schema before importing, then puts you back.
 | Command | Does |
 |---|---|
 | `db-dump` | Dumps the remote database into its dump dir, as `dump--latest.sql`. Downloads nothing, writes nothing. |
-| `db-import` | Imports your local `storage/envoy/dump--latest.sql` into your **local** database: checkout the remote's branch → `migrate:fresh` → import → back to your branch → `migrate`. |
+| `db-import` | Imports your local `dump--latest.sql` into your **local** database: checkout the remote's branch → `migrate:fresh` → import → back to your branch → `migrate`. |
 | `db-import-remote` | Drops and rebuilds the remote database, then imports the `dump--latest.sql` already sitting there — the one the last `db-push` uploaded. Uploads nothing; errors if the remote has no dump. |
 | `db-pull` | remote → local, end to end: `db-dump` → download → `db-import`. |
 | `db-push` | local → remote, end to end: dump local → upload → import on the remote. |
@@ -282,6 +276,14 @@ Everything that changes the remote confirms first — `db-import-remote`,
 `db-push-sqlite`, `storage-push`, `migrate`, `git-reset`. `db-import-remote` runs
 `migrate:fresh` against the remote database, so it is the one to read twice
 before answering. `db-upload` only drops a file in the dump dir, so it doesn't ask.
+
+Dumps are written to `dumps:` on the database, which defaults to
+`./storage/envoy`. The path is relative, so the one default means that
+directory under the project root at whichever end is writing — here, and on
+every remote. Nothing has to exist first: the directory is created when a dump
+is first written, and gets a `.gitignore` of its own that ignores everything in
+it, so no dump is ever committed at either end. Give an absolute or `~` path to
+put them somewhere off the project instead.
 
 A dump directory keeps **two** dumps: `dump--latest.sql`, and
 `dump--previous.sql`, which is the dump that was the latest one until now.
@@ -426,9 +428,9 @@ shared tasks use (`$remote`, `$local`) are local to the imported file:
 | `stubs/Envoy.blade.php` | what you copy into a project: the config block, and the import |
 | `Envoy.blade.php` | the tasks and stories, imported from `vendor` and never edited |
 | `src/Config.php` | the whole configuration, plus everything derived from it |
-| `src/Environment.php` | one end of the map — its paths, its build, what mirrors with it, and the ssh / scp / rsync spellings of its port |
+| `src/Environment.php` | one end of the map — its paths, its build, what mirrors with it, where its dumps land, and the ssh / scp / rsync spellings of its port |
 | `src/CommandLine.php` | the arguments Envoy was called with, read for which remote a command means |
-| `src/Database.php` | one database, whether it is a MySQL schema or a SQLite file, and whether anything may be written into it — `null` on the environments of a project that has none |
+| `src/Database.php` | one database, whether it is a MySQL schema or a SQLite file, where its dumps are written, and whether anything may be written into it — `null` on the environments of a project that has none |
 | `src/SyncDir.php` | one directory that mirrors |
 | `src/Env.php` | the two credential pairs, out of the project's `.env` |
 
