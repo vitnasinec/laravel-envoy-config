@@ -42,6 +42,7 @@
             ssh: 'exampleuser@example.pef.czu.cz',
             path: '~/code/stage1',
             build: true,
+            // deployFrom: 'main',   // refuse a deploy from any other branch
 
             /*
             | Which directories move between this remote and here, and which

@@ -65,9 +65,26 @@
     | it is wherever you are standing right now, and the code tasks move a
     | remote onto it. The far end is never assumed to be anywhere — db-import
     | is the only task that cares, and it asks over ssh when it runs.
+    |
+    | These are the tasks that would use it, so these are the ones a detached
+    | head refuses. The rest never ask what you are standing on, and a working
+    | copy with no branch to name is no reason to stop them.
     */
 
     $local_branch = $envoy->localBranch();
+
+    $envoy->requireBranch([
+        'deploy', 'code-push', 'push', 'git-push', 'git-repush', 'git-pull',
+        'git-reset', 'db-pull', 'db-import',
+    ]);
+
+    /*
+    | A remote that names the branch it deploys from takes no other, and says
+    | so here — before the story's first task takes the site down, rather than
+    | at the checkout it would refuse. These are the names that end in one.
+    */
+
+    $envoy->guardBranch(['deploy', 'code-push', 'push', 'git-pull', 'git-reset']);
 
     /* A read-only database is one nothing may be written into by hand. */
 

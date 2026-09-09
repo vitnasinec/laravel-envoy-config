@@ -76,9 +76,10 @@ final class Config
     public readonly Environment $remote;
 
     /**
-     * What git last said this working copy is on. Asking git is a subprocess,
-     * and every task that needs the branch needs the same answer, so it is
-     * asked once.
+     * What git said this working copy is on, as it said it — a name, `HEAD`
+     * for a detached one, or nothing at all where git could not answer. Asking
+     * is a subprocess, and every task that needs the branch needs the same
+     * answer, so it is asked once.
      */
     private ?string $branch = null;
 
@@ -123,35 +124,43 @@ final class Config
      * Envoy renders this file here, in this working copy, so here is the one
      * end git can be asked about directly. What the far end is on is the far
      * end's business, and db-import asks it over ssh at the moment it matters.
+     *
+     * The answer is passed on as git gave it, `HEAD` and all: every task body
+     * is rendered on every run, including the ones this run is not about, so a
+     * working copy with no branch to name cannot be an error here. It is one
+     * in requireBranch(), for the tasks that would have used it.
      */
     public function localBranch(): string
     {
-        if ($this->branch !== null) {
-            return $this->branch;
-        }
-
-        $branch = trim((string) shell_exec(
+        return $this->branch ??= trim((string) shell_exec(
             'git -C '.escapeshellarg($this->local->path).' rev-parse --abbrev-ref HEAD 2>/dev/null'
         ));
+    }
 
-        if ($branch !== '' && $branch !== 'HEAD') {
-            return $this->branch = $branch;
-        }
+    /**
+     * Refuse the tasks that need a branch, when there is no branch to give
+     * them.
+     *
+     * Which those are is the task file's own business, so it hands them over.
+     * The rest are none of this method's concern: a detached head is no reason
+     * to refuse storage-pull or db-push, neither of which asks what you are
+     * standing on, and `envoy tasks` names no task at all.
+     *
+     * @param  list<string>  $tasks  the names that would use the branch
+     */
+    public function requireBranch(array $tasks): void
+    {
+        $branch = $this->localBranch();
 
-        /*
-        | Nothing is about to run — `envoy tasks` is only reading the list — so
-        | no command is about to be handed a branch, and there is nothing to
-        | refuse. The word git itself uses for nowhere in particular renders it.
-        */
-
-        if (! CommandLine::runsATask()) {
-            return $this->branch = 'HEAD';
+        if (($branch !== '' && $branch !== 'HEAD') || ! in_array(CommandLine::task(), $tasks, true)) {
+            return;
         }
 
         if ($branch === 'HEAD') {
             throw new RuntimeException(
-                'Envoy: this working copy is on a detached HEAD, and the code commands '
-                .'move a remote onto the branch you are on. Check one out first.'
+                'Envoy: this working copy is on a detached HEAD, and '.CommandLine::task()
+                .' is one of the commands that needs the branch you are on. Check one out '
+                .'first.'
             );
         }
 
@@ -159,6 +168,44 @@ final class Config
             'Envoy: git could not say which branch '.$this->local->path.' is on. The '
             ."path: on local has to be this project's working copy — every code task "
             .'here is a git command run inside it.'
+        );
+    }
+
+    /**
+     * Refuse, before anything runs, to move a protected remote onto the wrong
+     * branch.
+     *
+     * A remote with deployFrom: set deploys from that branch and no other. The
+     * check is here rather than in the task that would do the checkout because
+     * the code stories take the site down first: a refusal at git-pull would
+     * arrive with the site already in maintenance mode, and this one arrives
+     * before the story starts.
+     *
+     * Which tasks those are is the task file's own business, so it hands them
+     * over — everything that ends in a checkout on the far end. Nothing else is
+     * touched: a protected prod still takes storage-pull, db-pull and status
+     * from wherever you are standing, because none of them moves it.
+     *
+     * @param  list<string>  $tasks  the names that move a remote's checkout
+     */
+    public function guardBranch(array $tasks): void
+    {
+        $wanted = $this->remote->deployFrom;
+
+        if ($wanted === null || ! in_array(CommandLine::task(), $tasks, true)) {
+            return;
+        }
+
+        $branch = $this->localBranch();
+
+        if ($branch === $wanted) {
+            return;
+        }
+
+        throw new RuntimeException(
+            'Envoy: '.$this->remoteLabel().' deploys from '.$wanted.', and this working '
+            .'copy is on '.$branch.'. Check '.$wanted.' out here, or drop deployFrom: '
+            .'from that remote to deploy it from wherever you are.'
         );
     }
 
@@ -405,6 +452,14 @@ final class Config
                 .'to the Environment for the remote they mirror with.'
             );
         }
+
+        if ($this->local->deployFrom !== null) {
+            throw new RuntimeException(
+                'Envoy: deployFrom: belongs on a remote, not on local — it says which '
+                .'branch that remote may be moved onto. This end is the one doing the '
+                .'moving, and it is on whatever branch you have checked out.'
+            );
+        }
     }
 
     private function validateRemote(string $name, Environment $remote): void
@@ -419,6 +474,14 @@ final class Config
 
         if ($remote->db !== null && $this->local->db !== null) {
             $this->validateDatabases($name, $remote, $this->local->db);
+        }
+
+        if ($remote->deployFrom === '') {
+            throw new RuntimeException(
+                'Envoy: deployFrom: on '.$name.' is an empty string, which is not a '
+                .'branch. Name the branch it deploys from, or leave deployFrom: off to '
+                .'deploy it from any of them.'
+            );
         }
 
         if ($remote->ssh === '') {

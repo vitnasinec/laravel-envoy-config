@@ -67,6 +67,7 @@ $envoy = new Config(
         composer: 'composer',                    //   e.g. '/opt/alt/php83/usr/bin/php'
         npm: 'npm',                              //   or  'php ~/code/bin/composer'
         build: true,                             // build assets there on deploy / code-push
+        deployFrom: 'main',                      // the only branch it may be moved onto
         storagePull: [new Storage('storage/app')],   // comes down from this remote
         storagePush: [],                             // goes up to it
         db: new Database(
@@ -127,6 +128,7 @@ remote: [
         ssh: 'me@example.com',
         path: '~/code/prod',
         build: true,
+        deployFrom: 'main',
         storagePull: [new Storage('storage/app')],
         db: new Database(
             database: 'example_prod',
@@ -172,8 +174,9 @@ asks first, and with several remotes the question names the one it is about —
 
 Names are lowercase, and become `--flags`, so they cannot be one Envoy already
 uses (`--pretend`, `--continue`, `--force`, `--dry`, …). Everything else is
-**per remote**: its own `port`, `build:`, `db:` and `readOnly:`, its own
-`storagePull:` and `storagePush:`, its own credentials in `.env`. A
+**per remote**: its own `port`, `build:`, `db:`, `readOnly:` and
+`deployFrom:`, its own `storagePull:` and `storagePush:`, its own credentials
+in `.env`. A
 read-only `prod` beside a writable `dev` is two entries and nothing more —
 `db-push --prod` refuses, `db-push --dev` runs, and the example above sends
 `storage-sync --prod` down and `storage-sync --dev` up.
@@ -244,6 +247,7 @@ of them is checked, whichever the flag would have picked.
 |---|---|
 | `storagePull:` `storagePush:` | on each remote: which directories move between it and here, and which way — see [below](#which-way-does-the-data-go) |
 | `ignoreTables:` | tables whose data is never carried between environments. Defaults to `Config::IGNORE_TABLES` — migrations, cache, sessions, queues, telescope, pulse. Extend it rather than replacing it: `[...Config::IGNORE_TABLES, 'audits']` |
+| `deployFrom:` | on a remote: the one branch it may be moved onto — see [Branches](#branches). Off by default, and then it takes whichever branch you are on |
 
 ### Branches
 
@@ -253,8 +257,9 @@ times a day. Every task that needs one asks git instead.
 
 Here, that is `git rev-parse` in this working copy, read once when the file
 renders: `code-push` pushes the branch you are on and moves the remote onto
-that same branch, so the two can never disagree. A detached HEAD is refused
-rather than deployed.
+that same branch, so the two can never disagree. A detached HEAD is refused by
+name rather than deployed — but only for the commands that would have used the
+branch, so `storage-pull`, `db-push` and `status` still run from one.
 
 At the far end it is the same question asked over ssh, at the moment it
 matters, which is `db-import` and nowhere else: it checks out whatever branch
@@ -262,6 +267,30 @@ that remote is on right now to build the right schema before importing, then
 puts you back. Asking beats declaring there too — a `code-push --dev` leaves
 dev on your feature branch, and a config that still said `develop` would
 rebuild the wrong schema.
+
+What a remote *may* be moved onto is a different question, and the one thing
+about branches worth writing down, because it is a policy rather than a
+reading. `deployFrom: 'main'` on a remote refuses anything that would check a
+branch out there from anywhere else:
+
+```php
+'prod' => new Environment(ssh: ..., path: ..., deployFrom: 'main'),
+'dev' => new Environment(ssh: ..., path: ...),   // any branch
+```
+
+```
+$ envoy run deploy --prod          # on feature/invoices
+
+  Envoy: prod deploys from main, and this working copy is on
+  feature/invoices. Check main out here, or drop deployFrom: from that
+  remote to deploy it from wherever you are.
+```
+
+That covers `deploy`, `code-push`, `push`, `code-push --force` and a bare
+`git-pull` / `git-reset`, and it lands before the story's first task takes the
+site down, rather than at the checkout it refuses. Nothing that leaves the
+remote's checkout alone is affected: `storage-pull --prod`, `db-pull --prod`
+and `status --prod` run from wherever you are standing.
 
 ## Commands
 

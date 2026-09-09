@@ -52,6 +52,21 @@ final class CommandLine
     }
 
     /**
+     * The task or story the command line named, or null when it named none —
+     * `envoy tasks` is reading the list, and `envoy run` on its own is about to
+     * be told it has to say what to run.
+     */
+    public static function task(): ?string
+    {
+        $words = array_values(array_filter(
+            self::arguments(),
+            static fn (string $argument): bool => ! str_starts_with($argument, '-'),
+        ));
+
+        return ($words[0] ?? null) === 'run' ? ($words[1] ?? null) : null;
+    }
+
+    /**
      * The arguments, without the name Envoy was called by.
      *
      * @return list<string>
