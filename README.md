@@ -9,7 +9,7 @@ rest.
 $envoy = new Config(
     remote: new Environment(
         ssh: 'me@example.com',
-        path: '~/code/stage1',
+        path: '~/code/app',
         storagePull: [new Storage('storage/app')],
         ...
     ),
@@ -62,7 +62,7 @@ $envoy = new Config(
     remote: new Environment(
         ssh: 'exampleuser@example.pef.czu.cz',   // or the bare host, if ~/.ssh/config knows the user
         port: null,                              // a number only to override ~/.ssh/config's port
-        path: '~/code/stage1',                   // project root on the server
+        path: '~/code/app',                      // project root on the server
         php: 'php',                              // absolute paths for hosts that lack them on PATH,
         composer: 'composer',                    //   e.g. '/opt/alt/php83/usr/bin/php'
         npm: 'npm',                              //   or  'php ~/code/bin/composer'
@@ -110,7 +110,7 @@ and `db-push` transfer that file instead of dumping, and `host`, `port`,
 `username` and `password` go unused:
 
 ```php
-db: new Database('~/code/stage1/database/database.sqlite'),
+db: new Database('~/code/app/database/database.sqlite'),
 ```
 
 Every end has to be the same kind — all names, or all `.sqlite` paths. A
@@ -225,7 +225,7 @@ else to say:
 $envoy = new Config(
     remote: new Environment(
         ssh: 'me@example.com',
-        path: '~/code/stage1',
+        path: '~/code/app',
         storagePull: [new Storage('storage/app')],
     ),
     local: new Environment(path: '/Users/me/Sites/example'),
