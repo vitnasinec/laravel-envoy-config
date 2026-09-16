@@ -6,11 +6,11 @@
 | This file is config. The tasks live in vendor/vitnasinec/laravel-envoy-config,
 | pulled in by the import below — update them with composer, not by hand.
 |
-|   envoy run code-push            fast deploy  (alias: push)
-|   envoy run deploy               full deploy — composer install and migrate too
-|   envoy run db-pull              remote database down to local
-|   envoy run storage-pull         every directory that remote declares, down
-|   envoy run storage-sync         every direction that remote declares
+|   envoy run code-push --prod     fast deploy  (alias: push)
+|   envoy run deploy --prod        full deploy — composer install and migrate too
+|   envoy run db-pull --prod       remote database down to local
+|   envoy run storage-pull --prod  every directory that remote declares, down
+|   envoy run storage-sync --prod  every direction that remote declares
 |
 --}}
 
@@ -29,8 +29,9 @@
         | The remote. Only usernames and passwords come from .env, because this
         | file is committed and they are not.
         |
-        | Several servers is a list keyed by name, and then every command says
-        | which one it means: envoy run deploy --prod. There is no default.
+        | Every command says which remote it means, and one left unnamed is
+        | prod: envoy run deploy --prod. There is no default. Several servers is
+        | a list keyed by name, and each name is the flag that picks it:
         |
         |     remote: [
         |         'prod' => new Environment(ssh: ..., path: ...),

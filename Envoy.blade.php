@@ -15,18 +15,19 @@
 | can take prod's uploads down and publish its own up to dev — so the storage
 | commands read the lists on the remote the flag chose, and no others.
 |
-| A project with one remote has nothing to choose, so no command takes a flag.
-| A project with several — prod and dev — names them, and then every command
-| says which one it means: --prod, --dev. There is no default remote, because
-| a default is how a deploy meant for dev arrives on prod. Everything that
-| writes to a remote asks first, and the question names the remote.
+| Every command that touches a remote says which one it means: --prod, --dev.
+| That holds with one remote too — an unnamed one is prod, and takes --prod —
+| so a command is written the same way the day a second remote is added.
+| There is no default remote, because a default is how a deploy meant for dev
+| arrives on prod. Everything that writes to a remote asks first, and the
+| question names the remote.
 |
 | Common commands
-|   envoy run code-push            fast deploy  (alias: push)
-|   envoy run deploy               full deploy — composer install and migrate too
-|   envoy run db-pull              remote database down to local
-|   envoy run storage-pull         every directory that remote declares, down
-|   envoy run storage-sync         every direction that remote declares
+|   envoy run code-push --prod     fast deploy  (alias: push)
+|   envoy run deploy --prod        full deploy — composer install and migrate too
+|   envoy run db-pull --prod       remote database down to local
+|   envoy run storage-pull --prod  every directory that remote declares, down
+|   envoy run storage-sync --prod  every direction that remote declares
 |
 --}}
 
@@ -47,18 +48,17 @@
     }
 
     /*
-    | The remote this run is aimed at: the object, the name that selects it,
-    | and that name as it reads mid-sentence — a project that never named its
-    | one remote calls it "the remote" there.
+    | The remote this run is aimed at: the object, and the name that selects
+    | it — the one typed after the dashes, and the one every message says.
     */
 
-    $remote       = $envoy->remote;
-    $remote_name  = $envoy->remoteName;
-    $remote_label = $envoy->remoteLabel();
+    $remote      = $envoy->remote;
+    $remote_name = $envoy->remoteName;
 
     /*
-    | False only when db-import runs with several remotes and no flag: then
-    | there is no remote to ask, and it stays on the branch you are on.
+    | False only when db-import runs with no flag, or `envoy tasks` is only
+    | listing: then there is no remote to ask, and it stays on the branch you
+    | are on.
     */
 
     $remote_chosen = $envoy->remoteChosen;
@@ -178,7 +178,7 @@
 @task('git-pull', ['on' => 'remote'])
     set -e
     cd {{ $remote->path }}
-    echo "## Checking out {{ $local_branch }} on {{ $remote_label }} and pulling"
+    echo "## Checking out {{ $local_branch }} on {{ $remote_name }} and pulling"
     git fetch --quiet
     git checkout {{ $local_branch }} --quiet
     git pull --quiet
@@ -187,7 +187,7 @@
 @task('git-reset', ['on' => 'remote', 'confirm' => $envoy->confirm('Discard local commits and hard reset to origin')])
     set -e
     cd {{ $remote->path }}
-    echo "## Discarding local commits on {{ $remote_label }} and resetting to origin"
+    echo "## Discarding local commits on {{ $remote_name }} and resetting to origin"
     git fetch --quiet
     git checkout {{ $local_branch }} --quiet
     git reset --hard "origin/{{ $local_branch }}" --quiet
@@ -203,14 +203,14 @@
 @task('composer-install', ['on' => 'remote'])
     set -e
     cd {{ $remote->path }}
-    echo "## Installing composer dependencies on {{ $remote_label }}"
+    echo "## Installing composer dependencies on {{ $remote_name }}"
     {{ $remote->composer }} install --no-progress --no-interaction --no-dev --prefer-dist --optimize-autoloader
 @endtask
 
 @task('npm-build', ['on' => 'remote'])
     set -e
     cd {{ $remote->path }}
-    echo "## Building assets on {{ $remote_label }}"
+    echo "## Building assets on {{ $remote_name }}"
     {{ $remote->npm }} ci --silent || {{ $remote->npm }} install --silent
     {{ $remote->npm }} run --silent build
 @endtask
@@ -294,7 +294,7 @@
 @task('db-download', ['on' => 'local'])
     set -e
     {{ $envoy->rotateDumps($local->dumps()) }}
-    echo "## Downloading the dump from {{ $remote_label }}"
+    echo "## Downloading the dump from {{ $remote_name }}"
     scp {{ $scp_flag }} {{ $remote->ssh }}:{{ $remote->dumps() }}/{{ $dump_latest }} {{ $local->dumps() }}/{{ $dump_latest }}
 @endtask
 
@@ -307,7 +307,7 @@
         echo "##   run 'envoy run db-pull' first, or 'envoy run db-dump-local'"
         exit 1
     fi
-    echo "## Uploading {{ $dump_latest }} to {{ $remote_label }}"
+    echo "## Uploading {{ $dump_latest }} to {{ $remote_name }}"
     ssh {{ $ssh_flag }} {{ $remote->ssh }} "{{ $envoy->rotateDumps($remote->dumps()) }}"
     scp {{ $scp_flag }} {{ $local->dumps() }}/{{ $dump_latest }} {{ $remote->ssh }}:{{ $remote->dumps() }}/{{ $dump_latest }}
 @endtask
@@ -320,11 +320,11 @@
 @if ($remote_chosen)
     remote_branch=$(ssh {{ $ssh_flag }} {{ $remote->ssh }} "cd {{ $remote->path }} && git rev-parse --abbrev-ref HEAD")
     if [ "$remote_branch" = HEAD ]; then
-        echo "## {{ $remote_label }} is on a detached HEAD, so there is no branch to build the schema from"
+        echo "## {{ $remote_name }} is on a detached HEAD, so there is no branch to build the schema from"
         echo "##   check one out there, or run 'envoy run git-pull' to put it back on yours"
         exit 1
     fi
-    echo "## Rebuilding local schema from migrations on $remote_branch, which {{ $remote_label }} is on"
+    echo "## Rebuilding local schema from migrations on $remote_branch, which {{ $remote_name }} is on"
     git checkout "$remote_branch" --quiet
     {{ $local->php }} artisan migrate:fresh --drop-views --force --quiet
     echo "## Importing {{ $dump_latest }}"
@@ -380,7 +380,7 @@
 @if ($write_local)
 @task('db-pull-sqlite', ['on' => 'local'])
     set -e
-    echo "## Downloading the sqlite database from {{ $remote_label }}"
+    echo "## Downloading the sqlite database from {{ $remote_name }}"
     rsync {{ $rsync_opts }} --backup --suffix=.bak \
         {{ $remote->ssh }}:{{ $remote->db->database }} \
         {{ $local->db->database }}
@@ -390,7 +390,7 @@
 @if ($write_remote)
 @task('db-push-sqlite', ['on' => 'local', 'confirm' => $envoy->confirm('Overwrite the sqlite database')])
     set -e
-    echo "## Uploading the local sqlite database to {{ $remote_label }}"
+    echo "## Uploading the local sqlite database to {{ $remote_name }}"
     rsync {{ $rsync_opts }} --backup --suffix=.bak \
         {{ $local->db->database }} \
         {{ $remote->ssh }}:{{ $remote->db->database }}
@@ -438,7 +438,7 @@
 @task('storage-pull', ['on' => 'local'])
     set -e
 @if (! $storage_pull)
-    echo "## Nothing is declared to pull from {{ $remote_label }} — see its storagePull: list"
+    echo "## Nothing is declared to pull from {{ $remote_name }} — see its storagePull: list"
 @endif
 @foreach ($storage_pull as $e)
     echo "## {{ $remote_name }}:{{ $e->path }} -> local"
@@ -452,7 +452,7 @@
 @task('storage-push', ['on' => 'local', 'confirm' => $envoy->confirm('Push every declared directory')])
     set -e
 @if (! $storage_push)
-    echo "## Nothing is declared to push to {{ $remote_label }} — see its storagePush: list"
+    echo "## Nothing is declared to push to {{ $remote_name }} — see its storagePush: list"
 @endif
 @foreach ($storage_push as $e)
     echo "## local:{{ $e->path }} -> {{ $remote_name }}"
@@ -464,7 +464,7 @@
 @endtask
 
 @task('storage-nothing-declared', ['on' => 'local'])
-    echo "## No directories are declared on {{ $remote_label }}, so there is nothing to do."
+    echo "## No directories are declared on {{ $remote_name }}, so there is nothing to do."
     echo '##   e.g. storagePull: [new Storage("storage/app/public")],'
 @endtask
 

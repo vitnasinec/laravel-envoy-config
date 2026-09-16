@@ -47,7 +47,7 @@ final class Config
     public const DUMP_PREVIOUS = 'dump--previous.sql';
 
     /**
-     * The tasks a project with several remotes may run without naming one.
+     * The tasks that may run without naming a remote.
      * Each of them only ever writes here, and has something sensible to do
      * with no remote to ask — db-import builds the schema on the branch you
      * are standing on instead of the one a remote is on. Everything else still
@@ -55,8 +55,12 @@ final class Config
      */
     public const REMOTE_OPTIONAL = ['db-import'];
 
-    /** What a lone remote is called when the project never named it. */
-    public const DEFAULT_REMOTE = 'remote';
+    /**
+     * What a lone remote is called when the project never named it — and so the
+     * flag that selects it, because even the only remote has to be named on the
+     * command line.
+     */
+    public const DEFAULT_REMOTE = 'prod';
 
     /**
      * Names no remote may take, because `--<name>` already means something else
@@ -69,7 +73,8 @@ final class Config
 
     /**
      * Every remote there is, under the name that selects it. One is the usual
-     * case; two — prod and dev — is why this is a list at all.
+     * case, and it is called prod unless the project named it; two — prod and
+     * dev — is why this is a list at all.
      *
      * @var array<string, Environment>
      */
@@ -79,15 +84,15 @@ final class Config
     public readonly string $remoteName;
 
     /**
-     * The remote this run is aimed at — the only one there is, or the one the
-     * flag on the command line chose. Every task is rendered against it.
+     * The remote this run is aimed at — the one the flag on the command line
+     * chose. Every task is rendered against it.
      */
     public readonly Environment $remote;
 
     /**
-     * Whether this run is aimed at that remote — the only one there is, or the
-     * one a flag named. It is false only for a REMOTE_OPTIONAL task run with no
-     * flag, and then $remote is the first one, there to render the file
+     * Whether this run is aimed at that remote, because a flag named it. It is
+     * false only for a REMOTE_OPTIONAL task run with no flag, and for `envoy
+     * tasks`, and then $remote is the first one, there to render the file
      * against and for nothing to run on.
      */
     public readonly bool $remoteChosen;
@@ -223,7 +228,7 @@ final class Config
         }
 
         throw new RuntimeException(
-            'Envoy: '.$this->remoteLabel().' deploys from '.$wanted.', and this working '
+            'Envoy: '.$this->remoteName.' deploys from '.$wanted.', and this working '
             .'copy is on '.$branch.'. Check '.$wanted.' out here, or drop deployFrom: '
             .'from that remote to deploy it from wherever you are.'
         );
@@ -274,22 +279,12 @@ final class Config
     }
 
     /**
-     * The remote's name as it reads in a sentence. A project that never named
-     * its one remote calls it "the remote" there, the way it always has; one
-     * that named it says the name, which is the point of having named it.
-     */
-    public function remoteLabel(): string
-    {
-        return $this->remoteName === self::DEFAULT_REMOTE ? 'the remote' : $this->remoteName;
-    }
-
-    /**
-     * A confirmation that names the remote it is about. With one remote that is
-     * a formality; with two it is the whole reason for asking.
+     * A confirmation that names the remote it is about — the same name the flag
+     * just typed, so the question and the command agree on where it lands.
      */
     public function confirm(string $what): string
     {
-        return $what.' on '.$this->remoteLabel().'?';
+        return $what.' on '.$this->remoteName.'?';
     }
 
     /**
@@ -358,18 +353,17 @@ final class Config
     }
 
     /**
-     * Which remote this run means. One remote is not a choice and takes no
-     * flag; more than one is, and the flag is the only thing that makes it —
-     * there is no default, because a default is how you deploy to prod meaning
-     * dev. Null is no remote at all, for the few tasks that can do without.
+     * Which remote this run means. The flag is the only thing that says so,
+     * even when there is only one remote to mean: a command that reaches a
+     * server says which server in its own words, so the one typed against a
+     * single-remote project is the same one that is safe the day a second
+     * remote is added. There is no default, because a default is how you
+     * deploy to prod meaning dev. Null is no remote at all, for `envoy tasks`
+     * and the few tasks that can do without.
      */
     private function chooseRemote(): ?string
     {
         $names = array_keys($this->remotes);
-
-        if (count($names) === 1) {
-            return $names[0];
-        }
 
         $chosen = array_values(array_intersect($names, CommandLine::flags()));
 
@@ -389,18 +383,14 @@ final class Config
         | there is nothing to aim, and the first remote renders it.
         */
 
-        if (! CommandLine::runsATask()) {
-            return $names[0];
-        }
-
-        if (in_array(CommandLine::task(), self::REMOTE_OPTIONAL, true)) {
+        if (! CommandLine::runsATask() || in_array(CommandLine::task(), self::REMOTE_OPTIONAL, true)) {
             return null;
         }
 
         throw new RuntimeException(
-            'Envoy: this project has more than one remote, so every command has to say '
-            .'which one it means: '.$this->flagList($names).'. For example, envoy run '
-            .'deploy --'.$names[0].'.'
+            'Envoy: every command has to say which remote it means'
+            .(count($names) === 1 ? ', even when there is only one' : '')
+            .': '.$this->flagList($names).'. For example, envoy run deploy --'.$names[0].'.'
         );
     }
 

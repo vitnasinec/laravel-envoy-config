@@ -42,11 +42,11 @@ Updating is `composer update vitnasinec/laravel-envoy-config` — the project's
 
 | | |
 |---|---|
-| Environments | `local`, and one remote — or several, one chosen per run |
+| Environments | `local`, and one remote — or several — named on every run |
 | Command names | `<subject>-<verb>`: `code-push`, `db-pull`, `storage-sync` |
 | Direction | **pull = remote → local**, **push = local → remote**, same as git |
 | What mirrors | declared on the remote it mirrors with, so each remote has its own directions |
-| Target | one remote takes no flag; several take one on every command, and there is no default |
+| Target | every command that touches a remote takes its flag — `--prod` even when there is only one — and there is no default |
 | Writes to the remote | always confirm first, and the question names the remote |
 | Read-only databases | `readOnly: true` on an end, and nothing that writes to it is defined |
 | Configuration | one object, in the project's file, no indirection |
@@ -102,7 +102,7 @@ they say what moves between a remote and here, so they live on the remote — se
 next to the `npm` that runs it. It is **off by default** — a project with a
 front-end build says `build: true` once, in the file, and `deploy` and
 `code-push` run `npm-build` from then on. There is no flag that turns it on or
-off for a single run; `envoy run npm-build` is there for the one-off.
+off for a single run; `envoy run npm-build --prod` is there for the one-off.
 
 `database` says which kind of project this is, so there is no separate switch
 for it. A plain name is MySQL. A path ending in `.sqlite` is SQLite — `db-pull`
@@ -116,11 +116,26 @@ db: new Database('~/code/app/database/database.sqlite'),
 Every end has to be the same kind — all names, or all `.sqlite` paths. A
 mismatch is a typo, not a transfer, and the file refuses to run.
 
-### More than one remote
+### Naming the remote
 
-Usually there is one server and nothing to choose. Sometimes there are two — a
-`prod` and a `dev` — and then `remote:` is a list keyed by the name each
-answers to:
+Every command that touches a remote says which one it means, by name. A lone
+`remote: new Environment(...)` is called `prod`, so it takes `--prod`:
+
+```sh
+envoy run deploy --prod
+envoy run db-pull --prod
+```
+
+There is only one server to mean, and the flag is required anyway: a command
+typed against a one-remote project is then the same command that is safe the
+day a second remote is added, and nothing you have in your shell history or
+your fingers starts landing on whichever remote happens to come first. Call
+the one remote something else with a list of one —
+`remote: ['staging' => new Environment(...)]` — and it takes `--staging`
+instead.
+
+Sometimes there are two — a `prod` and a `dev` — and then `remote:` is a list
+keyed by the name each answers to:
 
 ```php
 remote: [
@@ -150,8 +165,7 @@ remote: [
 ],
 ```
 
-**The name is the flag that picks it**, so every command then says which remote
-it means:
+**The name is the flag that picks it**:
 
 ```sh
 envoy run deploy --prod
@@ -163,16 +177,17 @@ There is no default and no last-used, and a command without a flag does not
 run — it says which flags there are and stops:
 
 ```
-Envoy: this project has more than one remote, so every command has to say
-which one it means: --prod, --dev. For example, envoy run deploy --prod.
+Envoy: every command has to say which remote it means: --prod, --dev. For
+example, envoy run deploy --prod.
 ```
 
 A default is how a deploy meant for `dev` arrives on `prod`, so there isn't
 one. The one command that may leave the flag off is `db-import`, which only
 writes here: without one it asks no remote anything and builds the schema on
-the branch you are on — see [Branches](#branches). Two flags at once is refused for the same reason. Everything that writes
-asks first, and with several remotes the question names the one it is about —
-*Migrate the database on prod?* — rather than only the task.
+the branch you are on — see [Branches](#branches). Two flags at once is
+refused for the same reason. Everything that writes asks first, and the
+question names the remote it is about — *Migrate the database on prod?* —
+rather than only the task.
 
 Names are lowercase, and become `--flags`, so they cannot be one Envoy already
 uses (`--pretend`, `--continue`, `--force`, `--dry`, …). Everything else is
@@ -182,10 +197,6 @@ in `.env`. A
 read-only `prod` beside a writable `dev` is two entries and nothing more —
 `db-push --prod` refuses, `db-push --dev` runs, and the example above sends
 `storage-sync --prod` down and `storage-sync --dev` up.
-
-One remote is not a choice, so it takes no flag and nothing above applies. A
-single *named* remote (`remote: ['staging' => ...]`) is still one remote and
-still takes none; the flags start being required the day a second one is added.
 
 `envoy tasks` only lists what there is and runs nothing, so it needs no flag
 either.
@@ -270,8 +281,7 @@ puts you back. Asking beats declaring there too — a `code-push --dev` leaves
 dev on your feature branch, and a config that still said `develop` would
 rebuild the wrong schema.
 
-Leave the flag off `db-import` in a project with several remotes and there is
-no far end to ask, so it asks nothing: it runs `migrate:fresh` on the branch you
+Leave the flag off `db-import` and there is no far end to ask, so it asks nothing: it runs `migrate:fresh` on the branch you
 are on and imports into that. That is the one to use for a dump whose origin
 doesn't matter, or one whose branch you have already checked out yourself.
 
@@ -318,7 +328,7 @@ and `status --prod` run from wherever you are standing.
 |---|---|
 | `db-dump` | Dumps the remote database into its dump dir, as `dump--latest.sql`. Downloads nothing, writes nothing. |
 | `db-dump-local` | Dumps your local database into your dump dir, as `dump--latest.sql`. Uploads nothing. |
-| `db-import` | Imports your local `dump--latest.sql` into your **local** database: checkout the remote's branch → `migrate:fresh` → import → back to your branch → `migrate`. With several remotes and no flag, it stays on your branch: `migrate:fresh` → import. |
+| `db-import` | Imports your local `dump--latest.sql` into your **local** database: checkout the remote's branch → `migrate:fresh` → import → back to your branch → `migrate`. With no flag, it stays on your branch: `migrate:fresh` → import. |
 | `db-import-remote` | Drops and rebuilds the remote database, then imports the `dump--latest.sql` already sitting there — the one the last `db-push` uploaded. Uploads nothing; errors if the remote has no dump. |
 | `db-pull` | remote → local, end to end: `db-dump` → download → `db-import`. |
 | `db-push` | local → remote: upload the `dump--latest.sql` you already have → import on the remote. It does **not** dump first — run `db-dump-local` when you mean to send the local database as it stands now. |
@@ -354,8 +364,8 @@ rotating the end it writes to.
 On a project with no database none of these tasks exists, and `db-pull` /
 `db-push` say so — see [No database](#no-database). An end marked
 `readOnly: true` loses the tasks that write to it the same way — see
-[Read-only database](#read-only-database). With several remotes each of these
-runs against the one the flag named, and against no other: `db-pull --dev`
+[Read-only database](#read-only-database). Each of these runs against the
+remote the flag named, and against no other: `db-pull --dev`
 dumps `dev` and imports it here, and `prod` is not touched.
 
 SQLite projects transfer the file itself. Point both `database` fields at the
@@ -382,10 +392,9 @@ keyboard. Which remote is the one thing the keyboard decides — and since the
 lists belong to it, that settles the direction too:
 
 ```sh
-envoy run storage-pull
-envoy run storage-push
-envoy run storage-sync --dry
-envoy run storage-pull --prod        # when there is more than one remote
+envoy run storage-pull --prod
+envoy run storage-push --dev
+envoy run storage-sync --prod --dry
 ```
 
 A remote that declares neither list moves nothing, and says so rather than
@@ -457,7 +466,7 @@ decide once, in the file, where the next person can read it.
 
 | Flag | Effect |
 |---|---|
-| `--prod` `--dev` … | which remote the command is for. Named after the remotes in the file, and required on every command as soon as there is more than one |
+| `--prod` `--dev` … | which remote the command is for. Named after the remotes in the file — a lone unnamed one is `--prod` — and required on every command that touches one |
 | `--force` | on `code-push` / `deploy`: amend + force-push, hard-reset the remote |
 | `--dry` | rsync dry run — the same itemized listing as a real run, having moved nothing |
 
@@ -506,8 +515,8 @@ shared tasks use (`$remote`, `$local`) are local to the imported file:
   borrows the remote's branch to build the right schema and puts you back
   afterwards.
 - Dumps are **data only**, always. `db-import` runs `migrate:fresh` on the
-  branch the remote is on first (on yours, when no remote was named), imports, then switches back to your branch and
-  applies newer migrations — so the schema comes from the migrations, never
+  branch the remote is on first (on yours, when no remote was named), imports,
+  then switches back to your branch and applies newer migrations — so the schema comes from the migrations, never
   from a dump.
 - Passwords go through `MYSQL_PWD`, not `--password=…`, so they don't show up
   in `ps` on a shared host. They are the only thing left in `.env`; if the
