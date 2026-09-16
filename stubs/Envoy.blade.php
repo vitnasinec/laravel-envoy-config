@@ -41,7 +41,7 @@
 
         remote: new Environment(
             ssh: 'exampleuser@example.pef.czu.cz',
-            path: '~/code/app',
+            path: '~/code/www',
             build: true,
             // deployFrom: 'main',   // refuse a deploy from any other branch
 
