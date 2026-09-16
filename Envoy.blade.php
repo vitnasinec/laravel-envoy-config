@@ -56,6 +56,13 @@
     $remote_name  = $envoy->remoteName;
     $remote_label = $envoy->remoteLabel();
 
+    /*
+    | False only when db-import runs with several remotes and no flag: then
+    | there is no remote to ask, and it stays on the branch you are on.
+    */
+
+    $remote_chosen = $envoy->remoteChosen;
+
     $local  = $envoy->local;
     $has_db = $envoy->hasDatabase();
     $sqlite = $envoy->isSqlite();
@@ -64,7 +71,8 @@
     | The branch this working copy is on, asked of git rather than declared:
     | it is wherever you are standing right now, and the code tasks move a
     | remote onto it. The far end is never assumed to be anywhere — db-import
-    | is the only task that cares, and it asks over ssh when it runs.
+    | is the only task that cares, and it asks over ssh when it runs. Named no
+    | remote, it checks nothing out, so a detached head is no reason to stop it.
     |
     | These are the tasks that would use it, so these are the ones a detached
     | head refuses. The rest never ask what you are standing on, and a working
@@ -75,7 +83,7 @@
 
     $envoy->requireBranch([
         'deploy', 'code-push', 'push', 'git-push', 'git-repush', 'git-pull',
-        'git-reset', 'db-pull', 'db-import',
+        'git-reset', 'db-pull', ...($remote_chosen ? ['db-import'] : []),
     ]);
 
     /*
@@ -309,6 +317,7 @@
 @task('db-import', ['on' => 'local', 'confirm' => true])
     set -e
     cd {{ $local->path }}
+@if ($remote_chosen)
     remote_branch=$(ssh {{ $ssh_flag }} {{ $remote->ssh }} "cd {{ $remote->path }} && git rev-parse --abbrev-ref HEAD")
     if [ "$remote_branch" = HEAD ]; then
         echo "## {{ $remote_label }} is on a detached HEAD, so there is no branch to build the schema from"
@@ -326,6 +335,15 @@
     git checkout {{ $local_branch }} --quiet
     {{ $local->php }} artisan migrate --force --quiet
     {{ $local->php }} artisan optimize:clear --quiet
+@else
+    echo "## No remote named, so rebuilding local schema from migrations on {{ $local_branch }}, where you are"
+    {{ $local->php }} artisan migrate:fresh --drop-views --force --quiet
+    echo "## Importing {{ $dump_latest }}"
+    MYSQL_PWD='{{ $local->db->password }}' mysql \
+        {{ $local->db->connectFlags() }} \
+        {{ $local->db->database }} < {{ $local->dumps() }}/{{ $dump_latest }}
+    {{ $local->php }} artisan optimize:clear --quiet
+@endif
 @endtask
 
 @endif

@@ -46,6 +46,15 @@ final class Config
     /** The dump before that one, and the rest of the history a dump dir keeps. */
     public const DUMP_PREVIOUS = 'dump--previous.sql';
 
+    /**
+     * The tasks a project with several remotes may run without naming one.
+     * Each of them only ever writes here, and has something sensible to do
+     * with no remote to ask — db-import builds the schema on the branch you
+     * are standing on instead of the one a remote is on. Everything else still
+     * refuses to guess.
+     */
+    public const REMOTE_OPTIONAL = ['db-import'];
+
     /** What a lone remote is called when the project never named it. */
     public const DEFAULT_REMOTE = 'remote';
 
@@ -74,6 +83,14 @@ final class Config
      * flag on the command line chose. Every task is rendered against it.
      */
     public readonly Environment $remote;
+
+    /**
+     * Whether this run is aimed at that remote — the only one there is, or the
+     * one a flag named. It is false only for a REMOTE_OPTIONAL task run with no
+     * flag, and then $remote is the first one, there to render the file
+     * against and for nothing to run on.
+     */
+    public readonly bool $remoteChosen;
 
     /**
      * What git said this working copy is on, as it said it — a name, `HEAD`
@@ -106,7 +123,10 @@ final class Config
         $this->validateNames();
         $this->validate();
 
-        $this->remoteName = $this->chooseRemote();
+        $chosen = $this->chooseRemote();
+
+        $this->remoteChosen = $chosen !== null;
+        $this->remoteName = $chosen ?? array_key_first($this->remotes);
         $this->remote = $this->remotes[$this->remoteName];
     }
 
@@ -341,9 +361,9 @@ final class Config
      * Which remote this run means. One remote is not a choice and takes no
      * flag; more than one is, and the flag is the only thing that makes it —
      * there is no default, because a default is how you deploy to prod meaning
-     * dev.
+     * dev. Null is no remote at all, for the few tasks that can do without.
      */
-    private function chooseRemote(): string
+    private function chooseRemote(): ?string
     {
         $names = array_keys($this->remotes);
 
@@ -371,6 +391,10 @@ final class Config
 
         if (! CommandLine::runsATask()) {
             return $names[0];
+        }
+
+        if (in_array(CommandLine::task(), self::REMOTE_OPTIONAL, true)) {
+            return null;
         }
 
         throw new RuntimeException(

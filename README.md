@@ -168,7 +168,9 @@ which one it means: --prod, --dev. For example, envoy run deploy --prod.
 ```
 
 A default is how a deploy meant for `dev` arrives on `prod`, so there isn't
-one. Two flags at once is refused for the same reason. Everything that writes
+one. The one command that may leave the flag off is `db-import`, which only
+writes here: without one it asks no remote anything and builds the schema on
+the branch you are on — see [Branches](#branches). Two flags at once is refused for the same reason. Everything that writes
 asks first, and with several remotes the question names the one it is about —
 *Migrate the database on prod?* — rather than only the task.
 
@@ -268,6 +270,11 @@ puts you back. Asking beats declaring there too — a `code-push --dev` leaves
 dev on your feature branch, and a config that still said `develop` would
 rebuild the wrong schema.
 
+Leave the flag off `db-import` in a project with several remotes and there is
+no far end to ask, so it asks nothing: it runs `migrate:fresh` on the branch you
+are on and imports into that. That is the one to use for a dump whose origin
+doesn't matter, or one whose branch you have already checked out yourself.
+
 What a remote *may* be moved onto is a different question, and the one thing
 about branches worth writing down, because it is a policy rather than a
 reading. `deployFrom: 'main'` on a remote refuses anything that would check a
@@ -311,7 +318,7 @@ and `status --prod` run from wherever you are standing.
 |---|---|
 | `db-dump` | Dumps the remote database into its dump dir, as `dump--latest.sql`. Downloads nothing, writes nothing. |
 | `db-dump-local` | Dumps your local database into your dump dir, as `dump--latest.sql`. Uploads nothing. |
-| `db-import` | Imports your local `dump--latest.sql` into your **local** database: checkout the remote's branch → `migrate:fresh` → import → back to your branch → `migrate`. |
+| `db-import` | Imports your local `dump--latest.sql` into your **local** database: checkout the remote's branch → `migrate:fresh` → import → back to your branch → `migrate`. With several remotes and no flag, it stays on your branch: `migrate:fresh` → import. |
 | `db-import-remote` | Drops and rebuilds the remote database, then imports the `dump--latest.sql` already sitting there — the one the last `db-push` uploaded. Uploads nothing; errors if the remote has no dump. |
 | `db-pull` | remote → local, end to end: `db-dump` → download → `db-import`. |
 | `db-push` | local → remote: upload the `dump--latest.sql` you already have → import on the remote. It does **not** dump first — run `db-dump-local` when you mean to send the local database as it stands now. |
@@ -499,7 +506,7 @@ shared tasks use (`$remote`, `$local`) are local to the imported file:
   borrows the remote's branch to build the right schema and puts you back
   afterwards.
 - Dumps are **data only**, always. `db-import` runs `migrate:fresh` on the
-  branch the remote is on first, imports, then switches back to your branch and
+  branch the remote is on first (on yours, when no remote was named), imports, then switches back to your branch and
   applies newer migrations — so the schema comes from the migrations, never
   from a dump.
 - Passwords go through `MYSQL_PWD`, not `--password=…`, so they don't show up
@@ -526,5 +533,6 @@ shared tasks use (`$remote`, `$local`) are local to the imported file:
   rendered against the remote it settled on, which is well before a task body
   could read a variable. Same argument, one step earlier.
 - `envoy tasks` renders the tasks without running any, so it does not ask which
-  remote it is for. Nothing else skips the flag.
+  remote it is for. The only other thing that skips the flag is `db-import`,
+  which falls back to the branch you are on.
 - Requires PHP 8.1 for `readonly`.
