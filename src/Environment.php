@@ -27,8 +27,9 @@ final class Environment
      *                       — off unless the project says otherwise
      * @param  list<Storage>  $storagePull  directories that move this remote -> local
      * @param  list<Storage>  $storagePush  directories that move local -> this remote
-     * @param  string|null  $deployFrom  the one branch this remote may be moved onto —
-     *                                   null, and it takes whichever you are on
+     * @param  string|null  $deployFrom  the branch this remote deploys from — any other
+     *                                   is asked about first; null, and it takes
+     *                                   whichever you are on without asking
      */
     public function __construct(
         public readonly string $path,

@@ -87,9 +87,9 @@
     ]);
 
     /*
-    | A remote that names the branch it deploys from takes no other, and says
-    | so here — before the story's first task takes the site down, rather than
-    | at the checkout it would refuse. These are the names that end in one.
+    | A remote that names the branch it deploys from takes another only when
+    | you say so, and asks here — before the story's first task takes the site
+    | down, rather than at the checkout. These are the names that end in one.
     */
 
     $envoy->guardBranch(['deploy', 'code-push', 'push', 'git-pull', 'git-reset']);

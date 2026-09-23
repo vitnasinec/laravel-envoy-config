@@ -43,7 +43,7 @@
             ssh: 'exampleuser@example.pef.czu.cz',
             path: '~/code/www',
             build: true,
-            // deployFrom: 'main',   // refuse a deploy from any other branch
+            // deployFrom: 'main',   // ask before a deploy from any other branch
 
             /*
             | Which directories move between this remote and here, and which

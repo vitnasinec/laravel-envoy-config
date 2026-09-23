@@ -197,12 +197,15 @@ final class Config
     }
 
     /**
-     * Refuse, before anything runs, to move a protected remote onto the wrong
-     * branch.
+     * Ask, before anything runs, whether a protected remote really is to be
+     * moved onto another branch.
      *
-     * A remote with deployFrom: set deploys from that branch and no other. The
+     * A remote with deployFrom: set deploys from that branch, and anything else
+     * has to be meant: the question names both branches and the remote, and
+     * only a yes lets the story go on. With nobody at a terminal to answer it —
+     * a CI job, a piped stdin — it is not asked, and the deploy is refused. The
      * check is here rather than in the task that would do the checkout because
-     * the code stories take the site down first: a refusal at git-pull would
+     * the code stories take the site down first: a question at git-pull would
      * arrive with the site already in maintenance mode, and this one arrives
      * before the story starts.
      *
@@ -227,11 +230,25 @@ final class Config
             return;
         }
 
-        throw new RuntimeException(
-            'Envoy: '.$this->remoteName.' deploys from '.$wanted.', and this working '
-            .'copy is on '.$branch.'. Check '.$wanted.' out here, or drop deployFrom: '
-            .'from that remote to deploy it from wherever you are.'
-        );
+        $situation = $this->remoteName.' deploys from '.$wanted.', and this working copy is on '.$branch.'.';
+
+        if (! stream_isatty(STDIN)) {
+            throw new RuntimeException(
+                'Envoy: '.$situation.' There is no terminal to ask whether that is meant, so '
+                .'it is refused. Check '.$wanted.' out here, or drop deployFrom: from that '
+                .'remote to deploy it from wherever you are.'
+            );
+        }
+
+        fwrite(STDOUT, "\033[33m".$situation.' Move '.$this->remoteName.' onto '.$branch." anyway? [y/N]:\033[0m ");
+
+        $answer = strtolower(trim((string) fgets(STDIN)));
+
+        if ($answer !== 'y' && $answer !== 'yes') {
+            throw new RuntimeException(
+                'Envoy: '.$this->remoteName.' stays where it is. Check '.$wanted.' out here to deploy it.'
+            );
+        }
     }
 
     /**

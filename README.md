@@ -67,7 +67,7 @@ $envoy = new Config(
         composer: 'composer',                    //   e.g. '/opt/alt/php83/usr/bin/php'
         npm: 'npm',                              //   or  'php ~/code/bin/composer'
         build: true,                             // build assets there on deploy / code-push
-        deployFrom: 'main',                      // the only branch it may be moved onto
+        deployFrom: 'main',                      // any other branch is asked about first
         storagePull: [new Storage('storage/app')],   // comes down from this remote
         storagePush: [],                             // goes up to it
         db: new Database(
@@ -260,7 +260,7 @@ of them is checked, whichever the flag would have picked.
 |---|---|
 | `storagePull:` `storagePush:` | on each remote: which directories move between it and here, and which way — see [below](#which-way-does-the-data-go) |
 | `ignoreTables:` | tables whose data is never carried between environments. Defaults to `Config::IGNORE_TABLES` — migrations, cache, sessions, queues, telescope, pulse. Extend it rather than replacing it: `[...Config::IGNORE_TABLES, 'audits']` |
-| `deployFrom:` | on a remote: the one branch it may be moved onto — see [Branches](#branches). Off by default, and then it takes whichever branch you are on |
+| `deployFrom:` | on a remote: the branch it deploys from; any other has to be confirmed — see [Branches](#branches). Off by default, and then it takes whichever branch you are on without asking |
 
 ### Branches
 
@@ -287,8 +287,8 @@ doesn't matter, or one whose branch you have already checked out yourself.
 
 What a remote *may* be moved onto is a different question, and the one thing
 about branches worth writing down, because it is a policy rather than a
-reading. `deployFrom: 'main'` on a remote refuses anything that would check a
-branch out there from anywhere else:
+reading. `deployFrom: 'main'` on a remote asks before anything that would
+check a branch out there from anywhere else:
 
 ```php
 'prod' => new Environment(ssh: ..., path: ..., deployFrom: 'main'),
@@ -298,14 +298,16 @@ branch out there from anywhere else:
 ```
 $ envoy run deploy --prod          # on feature/invoices
 
-  Envoy: prod deploys from main, and this working copy is on
-  feature/invoices. Check main out here, or drop deployFrom: from that
-  remote to deploy it from wherever you are.
+prod deploys from main, and this working copy is on feature/invoices.
+Move prod onto feature/invoices anyway? [y/N]:
 ```
+
+Anything but `y` stops there, and so does a run with no terminal to answer
+— a CI job or a piped stdin is refused outright rather than guessed for.
 
 That covers `deploy`, `code-push`, `push`, `code-push --force` and a bare
 `git-pull` / `git-reset`, and it lands before the story's first task takes the
-site down, rather than at the checkout it refuses. Nothing that leaves the
+site down, rather than at the checkout. Nothing that leaves the
 remote's checkout alone is affected: `storage-pull --prod`, `db-pull --prod`
 and `status --prod` run from wherever you are standing.
 
