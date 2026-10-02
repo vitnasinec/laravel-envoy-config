@@ -12,6 +12,8 @@
 |   envoy run storage-pull --prod  every directory that remote declares, down
 |   envoy run storage-sync --prod  every direction that remote declares
 |
+|   -p is short for --prod, -d for --dev:  envoy run code-push -p
+|
 --}}
 
 @include('vendor/autoload.php')

@@ -46,7 +46,7 @@ Updating is `composer update vitnasinec/laravel-envoy-config` — the project's
 | Command names | `<subject>-<verb>`: `code-push`, `db-pull`, `storage-sync` |
 | Direction | **pull = remote → local**, **push = local → remote**, same as git |
 | What mirrors | declared on the remote it mirrors with, so each remote has its own directions |
-| Target | every command that touches a remote takes its flag — `--prod` even when there is only one — and there is no default |
+| Target | every command that touches a remote takes its flag — `--prod` even when there is only one, or `-p` / `-d` for short — and there is no default |
 | Writes to the remote | always confirm first, and the question names the remote |
 | Read-only databases | `readOnly: true` on an end, and nothing that writes to it is defined |
 | Configuration | one object, in the project's file, no indirection |
@@ -197,6 +197,18 @@ in `.env`. A
 read-only `prod` beside a writable `dev` is two entries and nothing more —
 `db-push --prod` refuses, `db-push --dev` runs, and the example above sends
 `storage-sync --prod` down and `storage-sync --dev` up.
+
+`prod` and `dev` have short forms, `-p` and `-d`, which go after the task the
+way the long ones do:
+
+```sh
+envoy run code-push -p     # code-push --prod
+envoy run db-pull -d       # db-pull --dev
+```
+
+Only those two: any other name is spelled out. `-p` is still the name `prod`,
+not "the first remote", so it picks nothing in a project whose remotes are
+called something else.
 
 `envoy tasks` only lists what there is and runs nothing, so it needs no flag
 either.

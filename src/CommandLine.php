@@ -16,8 +16,16 @@ namespace Vitnasinec\EnvoyConfig;
 final class CommandLine
 {
     /**
-     * Every `--flag` typed, in the order it was typed. `--flag=value` counts as
-     * the flag alone — none of the ones read here carries a value.
+     * The short forms of the two remote names in use, so `-p` is `--prod` and
+     * `-d` is `--dev`. Only these: a letter is short for one name, and every
+     * other name is spelled out.
+     */
+    public const SHORT = ['p' => 'prod', 'd' => 'dev'];
+
+    /**
+     * Every `--flag` typed, in the order it was typed, with `-p` and `-d` read
+     * as the long names they are short for. `--flag=value` counts as the flag
+     * alone — none of the ones read here carries a value.
      *
      * @return list<string>
      */
@@ -28,6 +36,8 @@ final class CommandLine
         foreach (self::arguments() as $argument) {
             if (str_starts_with($argument, '--')) {
                 $flags[] = explode('=', substr($argument, 2), 2)[0];
+            } elseif (isset(self::SHORT[substr($argument, 1)]) && $argument[0] === '-') {
+                $flags[] = self::SHORT[substr($argument, 1)];
             }
         }
 

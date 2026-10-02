@@ -20,7 +20,7 @@
 | so a command is written the same way the day a second remote is added.
 | There is no default remote, because a default is how a deploy meant for dev
 | arrives on prod. Everything that writes to a remote asks first, and the
-| question names the remote.
+| question names the remote. -p and -d are short for --prod and --dev.
 |
 | Common commands
 |   envoy run code-push --prod     fast deploy  (alias: push)
